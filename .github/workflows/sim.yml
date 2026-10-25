@@ -18,6 +18,8 @@ jobs:
         run: sim/mem/run_mem_sim.sh
       - name: Audio
         run: sim/audio/run_audio_sim.sh
+      - name: kg_sync
+        run: sim/ctl/run_ctl_sim.sh
       - name: kg_mcu
         run: sim/mcu/run_kg_mcu_sim.sh
       - name: Verilog ports against the VHDL

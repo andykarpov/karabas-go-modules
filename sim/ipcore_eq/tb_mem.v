@@ -20,6 +20,22 @@ wire [7:0] sp_c, sp_k;
 ram2k c_sp (.clka(clk), .ena(en), .wea(we), .addra(a[10:0]), .dina(d[7:0]), .douta(sp_c));
 kg_spram #(.DW(8), .AW(11)) k_sp (.clk(clk), .en(en), .we(we), .addr(a[10:0]), .din(d[7:0]), .dout(sp_k));
 
+// ram8k (nes): SP 8Kx8, ena, write first
+wire [7:0] sp8_c, sp8_k;
+ram8k c_sp8 (.clka(clk), .ena(en), .wea(we), .addra(a[12:0]), .dina(d[7:0]), .douta(sp8_c));
+kg_spram #(.DW(8), .AW(13)) k_sp8 (.clk(clk), .en(en), .we(we), .addr(a[12:0]), .din(d[7:0]), .dout(sp8_k));
+
+// framebuffer (nes): SDP 64Kx6
+wire [5:0] fb_c, fb_k;
+framebuffer c_fb (.clka(clk), .wea(we), .addra(a[15:0]), .dina(d[5:0]), .clkb(clk), .addrb(b[15:0]), .doutb(fb_c));
+kg_sdpram #(.DW(6), .AW(16)) k_fb (.clka(clk), .wea(we), .addra(a[15:0]), .dina(d[5:0]), .clkb(clk), .enb(1'b1), .addrb(b[15:0]), .doutb(fb_k));
+
+// rom_font (nes): SDP 2Kx8, the osd font as init (rom_font.mif / rom_font.hex)
+wire [7:0] of_c, of_k;
+rom_font c_of (.clka(clk), .wea(we), .addra(a[10:0]), .dina(d[7:0]), .clkb(clk), .addrb(b[10:0]), .doutb(of_c));
+kg_sdpram #(.DW(8), .AW(11), .INIT_FILE("rom_font.hex")) k_of (.clka(clk), .wea(we), .addra(a[10:0]), .dina(d[7:0]),
+	.clkb(clk), .enb(1'b1), .addrb(b[10:0]), .doutb(of_k));
+
 // osd_vram (alf): SDP 1Kx16
 wire [15:0] sdp_c, sdp_k;
 osd_vram c_sdp (.clka(clk), .wea(we), .addra(a[9:0]), .dina(d[15:0]), .clkb(clk), .addrb(b[9:0]), .doutb(sdp_c));
@@ -90,6 +106,7 @@ initial begin
 	for (i = 0; i < 64; i = i + 1) begin
 		@(negedge clk); a = i; b = 63 - i + (i[0] ? 16000 : 0); en = 1; enb = 1;
 		@(negedge clk); check("rom", rom_c, rom_k); check("keyjoy", kj_c, kj_k); check("pattern init", pat_c, pat_k);
+		check("rom_font init", of_c, of_k);
 	end
 	for (i = 0; i < 40000; i = i + 1) begin
 		@(negedge clk);
@@ -97,6 +114,9 @@ initial begin
 		if (i > 0) begin
 			check("ram2k", sp_c, sp_k);
 			check("osd_vram", sdp_c, sdp_k);
+			check("ram8k", sp8_c, sp8_k);
+			check("framebuffer", fb_c, fb_k);
+			check("rom_font", of_c, of_k);
 			check("sectorbuf a", tda_c, tda_k); check("sectorbuf b", tdb_c, tdb_k);
 			check("cache a", ca_c, ca_k); check("cache b", cb_c, cb_k);
 			check("font", rom_c, rom_k);

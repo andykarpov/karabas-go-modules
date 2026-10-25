@@ -4,13 +4,14 @@
 Usage: gen_models.py <karabas-go directory with the sibling cores>
 
 - font.mif / font.hex: the rk86 font ROM (.mif for the coregen model, .hex for kg_sprom);
+- rom_font.mif / rom_font.hex: the nes osd font (the init of the rom_font RAM, .hex for kg_sdpram);
 - keyjoy_sdpram_64_6.mif / keyjoy.hex: the next keyjoy distributed RAM;
 - e3.hex: 16K bytes E3, the start of the sprite patterns of next (sdpbram_16k_8 has the default
   data E3, the transparent index);
 - <core>_ver.v: Verilog wrappers of the next dist_mem_gen / blk_mem_gen cores (ISE has the VHDL
   model only as a Verilog DIST_MEM_GEN_V7_2 / BLK_MEM_GEN_V7_3), with the generics of their .vhd.
 
-The next core keeps its coregen models in src/sim/ref/ipcore since it dropped ipcore_dir.
+The next and nes cores keep their coregen models in src/sim/ref/ipcore since they dropped ipcore_dir.
 """
 import os
 import re
@@ -20,12 +21,19 @@ K = sys.argv[1]
 NEXT = K + "/karabas-go-core-next/src/sim/ref/ipcore/"
 if not os.path.isdir(NEXT):
     NEXT = K + "/karabas-go-core-next/src/ipcore_dir/"
+NES = K + "/karabas-go-core-nes/src/sim/ref/ipcore/"
+if not os.path.isdir(NES):
+    NES = K + "/karabas-go-core-nes/src/ipcore_dir/"
 
 coe = open(K + "/karabas-go-core-rk86/src/roms/FONT.coe").read()
 vec = coe.split("=", 2)[2]
 vals = [int(x, 16) for x in re.split(r"[\s,;]+", vec) if x]
 open("font.mif", "w").write("".join("{:08b}\n".format(x) for x in vals))
 open("font.hex", "w").write("".join("%02x\n" % x for x in vals))
+
+mif = [l.strip() for l in open(NES + "rom_font.mif") if l.strip()]
+open("rom_font.mif", "w").write("\n".join(mif) + "\n")
+open("rom_font.hex", "w").write("".join("%02x\n" % int(x, 2) for x in mif))
 
 mif = [l.strip() for l in open(NEXT + "keyjoy_sdpram_64_6.mif") if l.strip()]
 open("keyjoy_sdpram_64_6.mif", "w").write("\n".join(mif) + "\n")

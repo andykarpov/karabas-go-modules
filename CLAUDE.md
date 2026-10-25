@@ -23,10 +23,10 @@ The reference versions are those of `karabas-go-core-nanomig` (sibling directory
 Now (old file -> its `kg_*` replacement):
 - `rtl/mcu`: `mcu.vhd` -> `kg_mcu` (same port names; built from `kg_mcu_link`, the transport with the reply queue and the chip select filter, and the decoders `kg_mcu_ctl`, `_hid`, `_loader`, `_rtc`, `_uart`, `_img`, `_debug`, `_esp` (the ESP8266 uart of the menu, `ENABLE_ESP`) on its frame bus, and `ENABLE_FLASHBOOT` (CMD_FLASHBOOT to the mcu, the core reload of next); command codes in `kg_mcu_cmds.vh`, which must match `src/config.h` of the firmware), `spi_slave.vhd` -> `kg_spi_slave`, `burst_rx.vhd` -> `kg_burst_rx`, `img_sdc.v`.
 - `rtl/mem`: `dpram.v` (-> `kg_tdpram` with one clock), `fifo.v` -> `kg_fifo`; `kg_async_fifo` (two clocks, Gray pointers); the coregen replacements `kg_spram`, `kg_sprom`, `kg_sdpram`, `kg_tdpram`, `kg_dist_sdpram`, `kg_dist_spram`.
-- `rtl/clk`: `kg_pll`, `kg_dcm`. `rtl/ctl`: `kg_soft_switches` (the `soft_switches.vhd` of the cores). `rtl/hid`: `kg_cursor` (their `cursor.vhd`).
+- `rtl/clk`: `kg_pll`, `kg_dcm`. `rtl/ctl`: `kg_soft_switches` (the `soft_switches.vhd` of the cores), `kg_sync` (synchroniser of static signals: `DVI_ONLY` of `kg_mcu` into the pixel clock of HDMI). `rtl/hid`: `kg_cursor` (their `cursor.vhd`).
 - `rtl/audio`: `pcm5102.v` -> `kg_pcm5102` (sends bit 0, see its header), `dac.vhd` -> `kg_sigma_delta_dac`, `audio_peaks.v`.
 - `rtl/video/hdmi`: `zhdmi_top.v`, zhdmi, `hdmi_pll.v`, `dvi*.vhd` (third-party VHDL, kept). `rtl/video/osd`: `overlay.vhd` -> `kg_osd_overlay` (`ALWAYS_ON` and `H_DIV4_WIDTH` for the menu), `pix_doubler.vhd` -> `kg_pix_doubler`.
-- `sim/` (`lint`, `mem`, `audio`, `eq`, `mcu`, `ipcore_eq`, `run_all.sh`); `tools/coe2hex.py`.
+- `sim/` (`lint`, `mem`, `audio`, `ctl`, `eq`, `mcu`, `ipcore_eq`, `run_all.sh`); `tools/coe2hex.py`.
 
 Planned:
 
@@ -45,12 +45,21 @@ Planned:
 - Imported code keeps its upstream form; local changes are marked with a `// karabas:` comment that says why.
 - Commit messages explain why a change was needed and what it costs or changes in behaviour (latency, LUT counts before and after), and say "No functional change." when that is the case.
 
+## Clock crossings
+
+- The outputs of `kg_mcu` (`DVI_ONLY`, `HWID`, soft switches, OSD commands, loader writes) are registers of its `CLK`. A core that uses one in another clock goes through a synchroniser or a handshake there; a constraint is not a fix for a missing one.
+- Static or slow signals (settings, enables, a flag that holds for many clocks): `kg_sync #(.W(n))` on the destination clock, `STAGES` 2 (3 for a fast destination clock). Each bit is synchronised on its own: a vector that changes may be seen half old, half new for a clock, so a counter or a data word crosses with `kg_async_fifo` (Gray pointers) or a toggle handshake (`kg_mcu_link`, `kg_spi_slave`), never with `kg_sync`.
+- `kg_sync` has `ASYNC_REG` (map keeps the stages together and moves no logic into them) and `SHREG_EXTRACT = "NO"`: the cores synthesize with `-shreg_extract YES`, and a chain of flip-flops without it becomes an SRL, which is no synchroniser. Check in the `.twr` / `.map` of the core that `<inst>/s_0`, `s_1` are flip-flops.
+- Constraints of the core for the path into the first stage: FROM-TO DATAPATHONLY bounded by one period of the destination clock (or TIG); the stages themselves are paths in one clock. Constrain from a PERIOD on CLK_50MHZ derived onto the PLL / DCM outputs, as the converted cores do (profi, tsconf, nes): separate PERIODs on each PLL output leave the crossings unanalysed and hide paths like the one below.
+- HDMI: anything of the core clock that selects or gates the TMDS words (`dvi_only ? dvi_* : tmds_*`, `audio_en` of zhdmi) reaches the 5x serialiser clock. Two dividers of one VCO give it a phase of a VCO step or less (nes: 0.2 ns, -2.9 ns slack): take it from a pixel clock register, i.e. `kg_sync` into the pixel clock first.
+
 ## Verifying a change
 
 `sim/run_all.sh` runs every test (about three minutes); each test prints `<tb>: 0 errors`. The CI (`.github/workflows/sim.yml`) runs the ones without ISE: lint, memories, audio, the `sim/eq` comparisons that go through ghdl. Tools: verilator, iverilog, ghdl (system packages), ISE 14.7 in `/opt/Xilinx/14.7` for ISim. If a tool is missing, ask the user to install it.
 
 - `sim/lint/run_lint.sh`: verilator `-Wall` on the `kg_*.v` files (no warning allowed), verilator on the imported Verilog (errors fail, warnings are listed), ghdl analysis of the VHDL (`ghdl_check.py`: VHDL-93 or 2008, ISE takes constructs of both; `spi_slave.vhd` only as its entity, ghdl rejects its case choices). Xilinx primitives and the VHDL entities used from Verilog are black boxes (`xilinx_stubs.v`, `unisim_stubs.vhd`).
 - `sim/mem/run_mem_sim.sh` (iverilog): the `kg_*` memories, `dpram.v` and `fifo.v` against the model in `tb_mem.v`, random stimulus, every output after every edge; `tb_async_fifo.v`: `kg_async_fifo` with four pairs of clocks (same frequency and two phases, either side faster) and a stream at the same frequency, every word in order, `rcount`, full / empty.
+- `sim/ctl/run_ctl_sim.sh` (iverilog): `tb_sync.v`, `kg_sync` against a model of its stages with d changing on another clock.
 - `sim/audio/run_audio_sim.sh` (iverilog): `tb_pcm5102.v` decodes the I2S stream (of `pcm5102.v` bits 15..1 only, bit 0 is never sent; of `kg_pcm5102` all 16 bits, whole frames, din changing with the falling bck), `tb_audio_peaks.v` the frames of the level meters.
 - `sim/eq/run_eq.sh`: each `kg_*` port against the old module, the same random stimulus, every output after every clock (`eq_check.vh`; an old output still X, a VHDL signal without initial value, is not compared). iverilog with the VHDL turned into a netlist by `ghdl --synth` (dac, pix_doubler, burst_rx, soft_switches and cursor of other cores, copied to `sim/eq/ref`), ISim for `spi_slave` (ghdl rejects it), `overlay` (latches; a cell after a popup / overlay switch is not compared, see `kg_osd_overlay.v`) and `mcu.vhd` against `kg_mcu` with the nanomig configuration (`tb_eq_mcu`; random frames, bursts with spikes, every core-side source; the stimulus must not fill the reply queue: 511 words in `fifo.v`, 512 in `kg_fifo`). `EQ_ONLY=<tb>` runs one. A rewrite of another module gets its testbench here.
 - `sim/mcu/run_kg_mcu_sim.sh` (iverilog, also in the CI): `tb_kg_mcu.v` (what `mcu.vhd` of nanomig does not have: the tsconf features, the file loaders of rk86 / alf, the chip select filter, a full reply queue) and `tb_mcu.v` / `tb_img.v` with `kg_mcu` (`-DKG_MCU`).

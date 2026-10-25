@@ -76,6 +76,7 @@ karabas-go-modules/
             kg_kempston_mouse.v kg_serial_mouse.v
             keymaps/            — таблицы ZX-матрицы, Amiga и т.д.
     ctl/    kg_soft_switches.v  — N 8-битных регистров, плоский выход + строб изменения
+            kg_sync.v           — статические сигналы в другой клок (2+ триггера на бит), есть
     mem/    kg_fifo.v  kg_async_fifo.v  (dpram → kg_tdpram с одним клоком, двухклоковый — kg_tdpram)
             kg_spram.v  kg_sprom.v  kg_sdpram.v  kg_tdpram.v  kg_tdpram_asym.v  kg_dist_sdpram.v  kg_dist_spram.v
     clk/    kg_pll.v (PLL_BASE + BUFG)  kg_dcm.v (DCM_SP)  kg_pll_reset.v
@@ -130,12 +131,14 @@ karabas-go-modules/
   Для ZX-ядер (profi, tsconf, baseconf, spec256, test) можно сделать общий `kg_zx_keymatrix`. NES, ALF и RK86 сохраняют свои раскладки. `kg_joy_map` один для всех. JOY 13 бит; у next и test 12 бит дополняются нулём.
 - **overlay**: эталон — nanomig (RGB 24 бита, HS/VS, автомасштаб, `H/V_OFFSET`). К нему добавляются `DEFAULT` из menu и `OSD_ACT` из rk86. Для profi и next (9-битный вход) — отдельный переходник, или они пока остаются в ядре.
 - **HDMI**: `kg_hdmi_top` на `zhdmi_tx` из nanomig (DVI-fallback) плюс `FORCE_DVI` из spec256.
+  - Настройки из `kg_mcu` (`DVI_ONLY`, `audio_en` из него) приходят в домене clk_sys; `kg_hdmi_top` переводит их в пиксельный клок через `kg_sync` сам, чтобы ядрам не надо было об этом помнить (найдено в nes, этап 4 п. 6).
   - Режим частоты задаётся параметром `CLK_MODE`: `ds80`, фиксированный `CLKRATE` или вход `freq`.
   - Мультиплексор FT812 (`ft_rgb/ft_sel`) выносится в `kg_video_mux`.
   - `hdmi_pll` получает параметры, а 10 версий превращаются в таблицу значений в ядрах.
 - **pcm5102** → `kg_pcm5102` с параметром делителя и сбросом. Сначала тестбенч на формат I2S, потом исправление индекса.
 - **dpram**: заменяется на `kg_tdpram` (тот же клок на оба порта; два клока, как в pdp2026, тоже он). Отдельный `kg_dpram` не нужен.
 - **fifo** → `kg_fifo` (уже на Verilog). Coregen-fifo заменить с проверкой ресурсов.
+- **kg_sync** (`rtl/ctl`, сделан 2026-10-25): синхронизатор статических и медленных сигналов в другой клок вместо пары триггеров в каждом top. Каждый бит синхронизируется отдельно, поэтому меняющийся вектор (счётчик, слово данных) через него не передаётся — для этого `kg_async_fifo` или toggle-рукопожатие, как в `kg_mcu_link`.
 - В общие уходят модули из nanomig:
   - `audio_peaks` (уровни для firmware нужны всем ядрам);
   - `audio_filter` → `kg_audio_lpf` с параметром среза;
@@ -316,7 +319,17 @@ karabas-go-modules/
       - Mini: путь zhdmi 5x клок → OSERDES не сошёлся на 0,21 нс из-за размещения (без логики, 5,4 нс трассы). cost table map задаётся на плату (`MAP_T_<board>` в Makefile), у Mini 2.
    4. baseconf — *пропустить*: ядра baseconf ещё нет, то, что лежит в файловой системе (`karabas-go-core-baseconf`), пока игнорировать. Упоминания baseconf в этом плане относятся к нему же;
    5. test, pcxt, vt100 (в основном ipcore группы A);
-   6. alf, alf128, nes, rk86 (исправления линка + ipcore A, B, PLL);
+   6. alf, alf128, nes, rk86 (исправления линка + ipcore A, B, PLL). nes — *сделано 2026-10-25, ждёт проверки на железе* (сборка 26102500). На `kg_*`: `mcu` → `kg_mcu` (файловый загрузчик `FILE_CMDS(1)`, `FILE_WR_EACH(0)` — запись по смене адреса, как в старом `mcu.vhd`; FT, SD2; `ENABLE_IMG(1)` под сейвы NES, пока без потребителя; burst 32 МГц на Mini G), `soft_switches` → `kg_soft_switches`, `pcm5102` → `kg_pcm5102`, `dac` → `kg_sigma_delta_dac` (Mini), `nes_clk` → `kg_pll`, `pllx5` → `kg_dcm`, `ram2k` / `ram8k` → `kg_spram`, `framebuffer` / `osd_vram` / `rom_font` → `kg_sdpram` (шрифт как `INIT_FILE`). Свой двухклоковый `overlay.vhd`, `pix_dobler.vhd` (по спаду) и HDMI-кодер ядра остаются. `.xise` и `ipcore_dir` удалены, сборка через `src/Makefile`, модели coregen — в `src/sim/ref/ipcore` ядра, новые пары в `sim/ipcore_eq` (`ram8k`, `framebuffer`, `rom_font` с init, `nes_clk`). Констрейнты прежние (PERIOD на двух выходах PLL, переходы clk ↔ clk_vga и MCU_SCK не анализируются); настоящие — отдельным шагом.
+
+      | Плата | LUT было → стало | Slices | RAMB16 | Тайминг |
+      |---|---|---|---|---|
+      | Go | 3 946 → 4 092 | 1 468 → 1 543 | 34 → 35 | выполнен |
+      | Mini | 5 085 → 5 112 | 1 802 → 1 784 | 34 → 35 | выполнен |
+      | Mini G | 5 030 → 5 026 | 1 745 → 1 807 | 34 → 35 | выполнен |
+
+      +1 RAMB16 — очередь ответов `kg_fifo` 512×24 (в старом `mcu.vhd` её не было), LUT — сам `kg_mcu` (фильтр CS, очередь, декодеры).
+
+      Настоящие констрейнты nes (PERIOD на CLK_50MHZ и т.д.) показали: `DVI_ONLY` из `kg_mcu` (clk_sys 21,51 МГц) через мультиплексор кодеров попадал прямо в сдвиговые регистры 5x HDMI с запасом 0,2 нс между фазами (−2,9 нс). Новый модуль `rtl/ctl/kg_sync` (N бит, 2+ триггера, `ASYNC_REG`, без SRL; тест `sim/ctl`) переводит его в пиксельный клок. Остальным ядрам с HDMI (nanomig, tsconf, menu, profi: `audio_en(~dvi_only)` в zhdmi и т.п.) — проверить тот же путь и брать `kg_sync`, а не свои два триггера.
    7. menu (загрузчик, рисковать им в последнюю очередь) — *сделано 2026-10-20, проверено на железе Mini G* (сборка 26102001: FT812 на HDMI, звук, OSD по центру). На `kg_*`: `mcu` → `kg_mcu` (FT, burst, новый декодер `kg_mcu_esp`, `ENABLE_ESP`), `soft_switches`, `overlay` → `kg_osd_overlay` (новые параметры `ALWAYS_ON`, `H_DIV4_WIDTH`), `fifo` → `kg_fifo`, `pcm5102`, `dac` → `kg_sigma_delta_dac`, `pll` → `kg_pll`, HDMI → zhdmi и `hdmi_top` / `hdmi_pll` из tsconf. `.xise` удалены, сборка через `src/Makefile`, опции map как у tsconf. Один блок констрейнтов в трёх ucf. Тесты против старого кода: `tb_eq_overlay`, `tb_mcu_esp`, `tb_hdmi_top`.
 
       | Плата | LUT было → стало | Slices | Score с реальными констрейнтами, было → стало |
