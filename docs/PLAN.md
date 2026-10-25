@@ -76,6 +76,7 @@ karabas-go-modules/
             kg_kempston_mouse.v kg_serial_mouse.v
             keymaps/            — таблицы ZX-матрицы, Amiga и т.д.
     ctl/    kg_soft_switches.v  — N 8-битных регистров, плоский выход + строб изменения
+            kg_sync.v           — статические сигналы в другой клок (2+ триггера на бит), есть
     mem/    kg_fifo.v  kg_async_fifo.v  (dpram → kg_tdpram с одним клоком, двухклоковый — kg_tdpram)
             kg_spram.v  kg_sprom.v  kg_sdpram.v  kg_tdpram.v  kg_tdpram_asym.v  kg_dist_sdpram.v  kg_dist_spram.v
     clk/    kg_pll.v (PLL_BASE + BUFG)  kg_dcm.v (DCM_SP)  kg_pll_reset.v
@@ -130,12 +131,14 @@ karabas-go-modules/
   Для ZX-ядер (profi, tsconf, baseconf, spec256, test) можно сделать общий `kg_zx_keymatrix`. NES, ALF и RK86 сохраняют свои раскладки. `kg_joy_map` один для всех. JOY 13 бит; у next и test 12 бит дополняются нулём.
 - **overlay**: эталон — nanomig (RGB 24 бита, HS/VS, автомасштаб, `H/V_OFFSET`). К нему добавляются `DEFAULT` из menu и `OSD_ACT` из rk86. Для profi и next (9-битный вход) — отдельный переходник, или они пока остаются в ядре.
 - **HDMI**: `kg_hdmi_top` на `zhdmi_tx` из nanomig (DVI-fallback) плюс `FORCE_DVI` из spec256.
+  - Настройки из `kg_mcu` (`DVI_ONLY`, `audio_en` из него) приходят в домене clk_sys; `kg_hdmi_top` переводит их в пиксельный клок через `kg_sync` сам, чтобы ядрам не надо было об этом помнить (найдено в nes, этап 4 п. 6).
   - Режим частоты задаётся параметром `CLK_MODE`: `ds80`, фиксированный `CLKRATE` или вход `freq`.
   - Мультиплексор FT812 (`ft_rgb/ft_sel`) выносится в `kg_video_mux`.
   - `hdmi_pll` получает параметры, а 10 версий превращаются в таблицу значений в ядрах.
 - **pcm5102** → `kg_pcm5102` с параметром делителя и сбросом. Сначала тестбенч на формат I2S, потом исправление индекса.
 - **dpram**: заменяется на `kg_tdpram` (тот же клок на оба порта; два клока, как в pdp2026, тоже он). Отдельный `kg_dpram` не нужен.
 - **fifo** → `kg_fifo` (уже на Verilog). Coregen-fifo заменить с проверкой ресурсов.
+- **kg_sync** (`rtl/ctl`, сделан 2026-10-25): синхронизатор статических и медленных сигналов в другой клок вместо пары триггеров в каждом top. Каждый бит синхронизируется отдельно, поэтому меняющийся вектор (счётчик, слово данных) через него не передаётся — для этого `kg_async_fifo` или toggle-рукопожатие, как в `kg_mcu_link`.
 - В общие уходят модули из nanomig:
   - `audio_peaks` (уровни для firmware нужны всем ядрам);
   - `audio_filter` → `kg_audio_lpf` с параметром среза;

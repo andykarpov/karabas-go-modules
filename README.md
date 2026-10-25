@@ -17,6 +17,15 @@ The cores include this repository as a git submodule in `modules/` and list the 
 
 `tools/coe2hex.py` converts a coregen `.coe` into the `$readmemh` file of the `INIT_FILE` parameters.
 
+A static signal of one clock used in another one (a setting of the mcu, an enable) goes through `kg_sync` on the destination clock, for example `DVI_ONLY` of `kg_mcu` into the pixel clock of HDMI:
+
+```verilog
+wire dvi_only_pix;
+kg_sync dvi_only_sync (.clk(clk_pix), .d(dvi_only), .q(dvi_only_pix)); // #(.W(n), .STAGES(2), .INIT(0))
+```
+
+with the path into it bounded in the ucf, e.g. `TIMESPEC "TS_SYS_TO_PIX" = FROM "TG_CLK_SYS" TO "TG_CLK_PIX" 40 ns DATAPATHONLY;`. It synchronises each bit on its own: words and counters cross with `kg_async_fifo`. See "Clock crossings" in [CLAUDE.md](CLAUDE.md).
+
 The `kg_*` modules are the Verilog versions of the files next to them (`a / b` above), checked against them; the cores move to them one by one.
 
 Tests: `sim/run_all.sh` (lint with verilator and ghdl, the memories and audio modules with Icarus Verilog, each `kg_*` port against the module it replaces; with ISE 14.7 also the MCU link against a model of the firmware and the `kg_*` modules against the coregen cores they replace). The CI runs the part without ISE.

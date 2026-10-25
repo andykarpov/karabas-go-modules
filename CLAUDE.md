@@ -45,6 +45,14 @@ Planned:
 - Imported code keeps its upstream form; local changes are marked with a `// karabas:` comment that says why.
 - Commit messages explain why a change was needed and what it costs or changes in behaviour (latency, LUT counts before and after), and say "No functional change." when that is the case.
 
+## Clock crossings
+
+- The outputs of `kg_mcu` (`DVI_ONLY`, `HWID`, soft switches, OSD commands, loader writes) are registers of its `CLK`. A core that uses one in another clock goes through a synchroniser or a handshake there; a constraint is not a fix for a missing one.
+- Static or slow signals (settings, enables, a flag that holds for many clocks): `kg_sync #(.W(n))` on the destination clock, `STAGES` 2 (3 for a fast destination clock). Each bit is synchronised on its own: a vector that changes may be seen half old, half new for a clock, so a counter or a data word crosses with `kg_async_fifo` (Gray pointers) or a toggle handshake (`kg_mcu_link`, `kg_spi_slave`), never with `kg_sync`.
+- `kg_sync` has `ASYNC_REG` (map keeps the stages together and moves no logic into them) and `SHREG_EXTRACT = "NO"`: the cores synthesize with `-shreg_extract YES`, and a chain of flip-flops without it becomes an SRL, which is no synchroniser. Check in the `.twr` / `.map` of the core that `<inst>/s_0`, `s_1` are flip-flops.
+- Constraints of the core for the path into the first stage: FROM-TO DATAPATHONLY bounded by one period of the destination clock (or TIG); the stages themselves are paths in one clock. Constrain from a PERIOD on CLK_50MHZ derived onto the PLL / DCM outputs, as the converted cores do (profi, tsconf, nes): separate PERIODs on each PLL output leave the crossings unanalysed and hide paths like the one below.
+- HDMI: anything of the core clock that selects or gates the TMDS words (`dvi_only ? dvi_* : tmds_*`, `audio_en` of zhdmi) reaches the 5x serialiser clock. Two dividers of one VCO give it a phase of a VCO step or less (nes: 0.2 ns, -2.9 ns slack): take it from a pixel clock register, i.e. `kg_sync` into the pixel clock first.
+
 ## Verifying a change
 
 `sim/run_all.sh` runs every test (about three minutes); each test prints `<tb>: 0 errors`. The CI (`.github/workflows/sim.yml`) runs the ones without ISE: lint, memories, audio, the `sim/eq` comparisons that go through ghdl. Tools: verilator, iverilog, ghdl (system packages), ISE 14.7 in `/opt/Xilinx/14.7` for ISim. If a tool is missing, ask the user to install it.
