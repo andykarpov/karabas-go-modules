@@ -204,7 +204,7 @@ always @(posedge clk) begin
 				wbuf_we <= 1'b1;
 				wbuf_wa <= img_data_addr;
 				wbuf_wd <= img_data;
-				rd_sum <= rd_sum + img_data;
+				rd_sum <= rd_sum + {8'd0, img_data};
 				rd_cnt <= rd_cnt + 10'd1;
 			end
 			if (img_result_wr && img_result == 8'd1 && rd_cnt == 10'd512 && rd_sum == img_sum) begin
@@ -285,7 +285,7 @@ always @(posedge clk) begin
 				end
 				else begin
 					img_q_di <= { CMD_IMG_BUF_DATA, wpos[7:0], wbuf_q };
-					wr_sum <= wr_sum + wbuf_q;
+					wr_sum <= wr_sum + {8'd0, wbuf_q};
 					bank_sent <= 1'b0;
 					wpos <= wpos + 10'd1;
 					state <= S_WADDR;

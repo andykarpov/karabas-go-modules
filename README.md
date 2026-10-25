@@ -6,7 +6,7 @@ The cores include this repository as a git submodule in `modules/` and list the 
 
 | Directory | Contents |
 |---|---|
-| `rtl/mcu` | MCU link (SPI commands of [karabas-go-firmware](https://github.com/andykarpov/karabas-go-firmware) `docs/protocol.md`, `docs/burst_protocol.md`): `mcu.vhd` / `kg_mcu` (= `kg_mcu_link` + the decoders `kg_mcu_*`), `spi_slave.vhd` / `kg_spi_slave`, `burst_rx.vhd` / `kg_burst_rx`, `img_sdc.v` (file mounter as a sector interface) |
+| `rtl/mcu` | MCU link (SPI commands of [karabas-go-firmware](https://github.com/andykarpov/karabas-go-firmware) `docs/protocol.md`, `docs/burst_protocol.md`): `mcu.vhd` / `kg_mcu` (= `kg_mcu_link` + the decoders `kg_mcu_*`), `spi_slave.vhd` / `kg_spi_slave`, `burst_rx.vhd` / `kg_burst_rx`, `img_sdc.v` (file mounter as a sector interface), `kg_bk_ram` (backup RAM of a cartridge kept in a `.sav` file: loaded at the start of a game, the written sectors saved back, flush on request) |
 | `rtl/mem` | `dpram.v`, `fifo.v` / `kg_fifo`, `kg_async_fifo` (two clocks); inferred replacements of the coregen memories: `kg_spram`, `kg_sprom`, `kg_sdpram`, `kg_tdpram` (byte write enables), `kg_dist_sdpram`, `kg_dist_spram` |
 | `rtl/ctl` | `kg_soft_switches` (OSD switches of the mcu), `kg_sync` (static signals into another clock: `DVI_ONLY` of `kg_mcu` into the HDMI pixel clock) |
 | `rtl/hid` | `kg_cursor` (absolute mouse position for the Kempston mouse) |

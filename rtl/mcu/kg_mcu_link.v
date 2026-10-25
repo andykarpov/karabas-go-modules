@@ -20,7 +20,8 @@
  kept: one-clock strobes of two sources in the same clock lose the second (as mcu.vhd). tx_full:
  the queue cannot take a word (a source that must not lose one waits for it).
  CMD_CAPS 00 is answered here, before all ports: bursts (bit 0), MCU_BURST_READY driven (bit 1),
- and the highest burst sck BURST_MAX_MHZ (0 = the normal link clock).
+ the backup RAM commands CMD_BK_MOUNT / CMD_IMG_FLUSH (bit 3, CAPS_BK: kg_bk_ram), and the highest
+ burst sck BURST_MAX_MHZ (0 = the normal link clock).
 
  The fixes of karabas-go-core-nanomig (its CLAUDE.md has the cases found on hardware):
  - CS_FILTER: cs_n and burst_cs_n go low at once and high only after CS_FILTER clocks high (0 =
@@ -34,6 +35,7 @@
 module kg_mcu_link #(
 	parameter BURST_MAX_MHZ = 0,
 	parameter CS_FILTER = 3,
+	parameter CAPS_BK = 0,          // caps bit 3: the core has kg_bk_ram (CMD_BK_MOUNT, CMD_IMG_FLUSH)
 	parameter TX_PORTS = 1
 ) (
 	input wire clk,
@@ -140,7 +142,7 @@ always @(posedge clk) begin
 end
 
 // CMD_CAPS 00: answered before all ports
-localparam [7:0] CAPS = 8'h03;
+localparam [7:0] CAPS = CAPS_BK ? 8'h0B : 8'h03;
 localparam [7:0] CAPS_MAX_MHZ = BURST_MAX_MHZ;
 reg caps_pend = 1'b0;
 wire caps_q = rx_stb && rx_cmd == CMD_CAPS && rx_addr == 8'h00;

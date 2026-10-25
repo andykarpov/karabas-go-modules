@@ -25,6 +25,7 @@ localparam [7:0] CMD_IMG_SEC      = 8'h43; // both directions
 localparam [7:0] CMD_IMG_BUF_BANK = 8'h44; // both directions
 localparam [7:0] CMD_IMG_BUF_DATA = 8'h45; // both directions
 localparam [7:0] CMD_IMG_PHYS     = 8'h46;
+localparam [7:0] CMD_IMG_FLUSH    = 8'h47; // both directions (kg_bk_ram)
 localparam [7:0] CMD_IOCTL_SLOT   = 8'h50;
 localparam [7:0] CMD_IOCTL_SIZE   = 8'h51;
 localparam [7:0] CMD_IOCTL_BANK   = 8'h52;
@@ -44,6 +45,7 @@ localparam [7:0] CMD_NOPE         = 8'hFF; // both directions
 // fpga -> mcu
 localparam [7:0] CMD_DEBUG_ADDR    = 8'h30;
 localparam [7:0] CMD_DEBUG_DATA    = 8'h31;
+localparam [7:0] CMD_BK_MOUNT      = 8'h48; // kg_bk_ram
 localparam [7:0] CMD_AUDIO_PEAKS_L = 8'h70;
 localparam [7:0] CMD_AUDIO_PEAKS_R = 8'h71;
 /* verilator lint_on UNUSEDPARAM */
