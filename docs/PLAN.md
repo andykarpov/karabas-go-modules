@@ -325,6 +325,8 @@ karabas-go-modules/
       | Mini G | 5 030 → 5 026 | 1 745 → 1 807 | 34 → 35 | выполнен |
 
       +1 RAMB16 — очередь ответов `kg_fifo` 512×24 (в старом `mcu.vhd` её не было), LUT — сам `kg_mcu` (фильтр CS, очередь, декодеры).
+
+      Настоящие констрейнты nes (PERIOD на CLK_50MHZ и т.д.) показали: `DVI_ONLY` из `kg_mcu` (clk_sys 21,51 МГц) через мультиплексор кодеров попадал прямо в сдвиговые регистры 5x HDMI с запасом 0,2 нс между фазами (−2,9 нс). Новый модуль `rtl/ctl/kg_sync` (N бит, 2+ триггера, `ASYNC_REG`, без SRL; тест `sim/ctl`) переводит его в пиксельный клок. Остальным ядрам с HDMI (nanomig, tsconf, menu, profi: `audio_en(~dvi_only)` в zhdmi и т.п.) — проверить тот же путь и брать `kg_sync`, а не свои два триггера.
    7. menu (загрузчик, рисковать им в последнюю очередь) — *сделано 2026-10-20, проверено на железе Mini G* (сборка 26102001: FT812 на HDMI, звук, OSD по центру). На `kg_*`: `mcu` → `kg_mcu` (FT, burst, новый декодер `kg_mcu_esp`, `ENABLE_ESP`), `soft_switches`, `overlay` → `kg_osd_overlay` (новые параметры `ALWAYS_ON`, `H_DIV4_WIDTH`), `fifo` → `kg_fifo`, `pcm5102`, `dac` → `kg_sigma_delta_dac`, `pll` → `kg_pll`, HDMI → zhdmi и `hdmi_top` / `hdmi_pll` из tsconf. `.xise` удалены, сборка через `src/Makefile`, опции map как у tsconf. Один блок констрейнтов в трёх ucf. Тесты против старого кода: `tb_eq_overlay`, `tb_mcu_esp`, `tb_hdmi_top`.
 
       | Плата | LUT было → стало | Slices | Score с реальными констрейнтами, было → стало |
