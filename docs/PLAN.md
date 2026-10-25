@@ -316,7 +316,15 @@ karabas-go-modules/
       - Mini: путь zhdmi 5x клок → OSERDES не сошёлся на 0,21 нс из-за размещения (без логики, 5,4 нс трассы). cost table map задаётся на плату (`MAP_T_<board>` в Makefile), у Mini 2.
    4. baseconf — *пропустить*: ядра baseconf ещё нет, то, что лежит в файловой системе (`karabas-go-core-baseconf`), пока игнорировать. Упоминания baseconf в этом плане относятся к нему же;
    5. test, pcxt, vt100 (в основном ipcore группы A);
-   6. alf, alf128, nes, rk86 (исправления линка + ipcore A, B, PLL);
+   6. alf, alf128, nes, rk86 (исправления линка + ipcore A, B, PLL). nes — *сделано 2026-10-25, ждёт проверки на железе* (сборка 26102500). На `kg_*`: `mcu` → `kg_mcu` (файловый загрузчик `FILE_CMDS(1)`, `FILE_WR_EACH(0)` — запись по смене адреса, как в старом `mcu.vhd`; FT, SD2; `ENABLE_IMG(1)` под сейвы NES, пока без потребителя; burst 32 МГц на Mini G), `soft_switches` → `kg_soft_switches`, `pcm5102` → `kg_pcm5102`, `dac` → `kg_sigma_delta_dac` (Mini), `nes_clk` → `kg_pll`, `pllx5` → `kg_dcm`, `ram2k` / `ram8k` → `kg_spram`, `framebuffer` / `osd_vram` / `rom_font` → `kg_sdpram` (шрифт как `INIT_FILE`). Свой двухклоковый `overlay.vhd`, `pix_dobler.vhd` (по спаду) и HDMI-кодер ядра остаются. `.xise` и `ipcore_dir` удалены, сборка через `src/Makefile`, модели coregen — в `src/sim/ref/ipcore` ядра, новые пары в `sim/ipcore_eq` (`ram8k`, `framebuffer`, `rom_font` с init, `nes_clk`). Констрейнты прежние (PERIOD на двух выходах PLL, переходы clk ↔ clk_vga и MCU_SCK не анализируются); настоящие — отдельным шагом.
+
+      | Плата | LUT было → стало | Slices | RAMB16 | Тайминг |
+      |---|---|---|---|---|
+      | Go | 3 946 → 4 092 | 1 468 → 1 543 | 34 → 35 | выполнен |
+      | Mini | 5 085 → 5 112 | 1 802 → 1 784 | 34 → 35 | выполнен |
+      | Mini G | 5 030 → 5 026 | 1 745 → 1 807 | 34 → 35 | выполнен |
+
+      +1 RAMB16 — очередь ответов `kg_fifo` 512×24 (в старом `mcu.vhd` её не было), LUT — сам `kg_mcu` (фильтр CS, очередь, декодеры).
    7. menu (загрузчик, рисковать им в последнюю очередь) — *сделано 2026-10-20, проверено на железе Mini G* (сборка 26102001: FT812 на HDMI, звук, OSD по центру). На `kg_*`: `mcu` → `kg_mcu` (FT, burst, новый декодер `kg_mcu_esp`, `ENABLE_ESP`), `soft_switches`, `overlay` → `kg_osd_overlay` (новые параметры `ALWAYS_ON`, `H_DIV4_WIDTH`), `fifo` → `kg_fifo`, `pcm5102`, `dac` → `kg_sigma_delta_dac`, `pll` → `kg_pll`, HDMI → zhdmi и `hdmi_top` / `hdmi_pll` из tsconf. `.xise` удалены, сборка через `src/Makefile`, опции map как у tsconf. Один блок констрейнтов в трёх ucf. Тесты против старого кода: `tb_eq_overlay`, `tb_mcu_esp`, `tb_hdmi_top`.
 
       | Плата | LUT было → стало | Slices | Score с реальными констрейнтами, было → стало |

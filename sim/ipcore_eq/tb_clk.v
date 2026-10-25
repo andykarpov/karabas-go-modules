@@ -2,7 +2,7 @@
 
 /*
  tb_clk.v: kg_pll / kg_dcm against the coregen clocking wizard cores they replace (alf pll.v and
- pllx5.v, next pll_midi.vhd; unisim models): every edge of the outputs and LOCKED compared. Run by
+ pllx5.v, nes nes_clk.v, next pll_midi.vhd; unisim models): every edge of the outputs and LOCKED compared. Run by
  run_ipcore_eq.sh.
 */
 module tb_clk;
@@ -27,6 +27,13 @@ wire k_fx, k_fx180, k_dlock;
 kg_dcm #(.CLKIN_PERIOD(40.0), .CLKFX_MULTIPLY(5), .CLKFX_DIVIDE(1)) k2 (.clk_in(clk25), .rst(1'b0),
 	.clk_fx(k_fx), .clk_fx180(k_fx180), .clk_0(), .locked(k_dlock));
 
+// nes nes_clk.v: 50 MHz pin -> 21.51 / 25.0 MHz
+wire [1:0] c_nes; wire c_nlock;
+nes_clk c4 (.CLK_IN1(clk50), .CLK_OUT1(c_nes[0]), .CLK_OUT2(c_nes[1]), .LOCKED(c_nlock));
+wire [5:0] k_nes; wire k_nlock;
+kg_pll #(.CLKIN_PERIOD(20.0), .DIVCLK_DIVIDE(2), .CLKFBOUT_MULT(37), .CLKOUT0_DIVIDE(43), .CLKOUT1_DIVIDE(37),
+	.IBUFG(1), .BUFG_MASK(6'b000011)) k4 (.clk_in(clk50), .rst(1'b0), .clk_out(k_nes), .locked(k_nlock));
+
 // next ipcore_dir/pll_midi.vhd: 28 MHz -> 12 MHz (MIDI), no LOCKED. Its DCM_SP is the VHDL unisim
 // model, whose edges come up to 2 ps away from the Verilog one of kg_dcm (the 41666.67 ps half
 // period rounded): compared 5 ps after every edge of either, from 20 us (both locked)
@@ -46,8 +53,8 @@ always @(c_midi or k_midi) begin
 	end
 end
 
-wire [7:0] c_all = {c_dlock, c_fx180, c_fx, c_lock, c_pll};
-wire [7:0] k_all = {k_dlock, k_fx180, k_fx, k_lock, k_pll[3:0]};
+wire [10:0] c_all = {c_nlock, c_nes, c_dlock, c_fx180, c_fx, c_lock, c_pll};
+wire [10:0] k_all = {k_nlock, k_nes[1:0], k_dlock, k_fx180, k_fx, k_lock, k_pll[3:0]};
 always @(c_all or k_all) begin
 	#1; // both models update in the same time step
 	if ($time > 0) begin
