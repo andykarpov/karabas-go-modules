@@ -42,6 +42,7 @@ module kg_mcu #(
 	parameter ENABLE_FT = 1,        // FT812 chip select passed through
 	parameter ENABLE_SD2 = 1,       // second SD card chip select passed through
 	parameter ENABLE_ESP = 0,       // the ESP8266 uart bridge (CMD_ESP_UART), see kg_mcu_esp
+	parameter ENABLE_PS2_CMD = 0,   // CMD_PS2_SCANCODE to mcu (Next186 kbd/mouse control)
 	parameter ENABLE_FLASHBOOT = 0  // CMD_FLASHBOOT to the mcu (next: the reload of a core), see port 9
 ) (
 	input wire CLK,
@@ -76,6 +77,10 @@ module kg_mcu #(
 	output wire KB_SCANCODE_UPD,
 	output wire [7:0] XT_SCANCODE,
 	output wire XT_SCANCODE_UPD,
+	/* verilator lint_off UNUSEDSIGNAL */
+	input wire [15:0] PS2_COMMAND,
+	input wire PS2_COMMAND_WR,
+	/* verilator lint_on UNUSEDSIGNAL */
 
 	// joysticks, buttons
 	output wire [12:0] JOY_L,
@@ -187,7 +192,7 @@ module kg_mcu #(
 
 `include "kg_mcu_cmds.vh"
 
-localparam P = 10;
+localparam P = 11;
 wire [P-1:0] tx_req;
 wire [P*24-1:0] tx_data;
 /* verilator lint_off UNUSEDSIGNAL */
@@ -370,6 +375,17 @@ generate
 	else begin : kg_mcu_flashboot_off
 		assign tx_req[9] = 1'b0;
 		assign tx_data[9*24 +: 24] = 24'd0;
+	end
+endgenerate
+
+generate
+	if (ENABLE_PS2_CMD) begin : kg_mcu_ps2_cmd_on
+		assign tx_req[10] = PS2_COMMAND_WR;
+		assign tx_data[10*24 +: 24] = { CMD_PS2_SCANCODE, PS2_COMMAND };
+	end
+	else begin : kg_mcu_ps2_cmd_off
+		assign tx_req[10] = 1'b0;
+		assign tx_data[10*24 +: 24] = 24'd0;
 	end
 endgenerate
 
