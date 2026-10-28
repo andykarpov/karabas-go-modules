@@ -37,7 +37,8 @@
 
 module hdf_ata #(
 	parameter DEF_HEADS = 5'd16,
-	parameter DEF_SPT = 8'd63
+	parameter DEF_SPT = 8'd63,
+	parameter SYNC_BUS = 0
 ) (
 	input wire clk,
 	input wire reset,          // power on: forgets the image
@@ -52,7 +53,7 @@ module hdf_ata #(
 	input wire rd_n,
 	input wire wr_n,
 	input wire [15:0] din,
-	output reg [15:0] dout = 16'd0,
+	output wire [15:0] dout,
 
 	// the images: two sdc indices of img_sdc, [0] device 0, [1] device 1 (busy, done, error and
 	// the strobe of these indices only)
@@ -100,6 +101,9 @@ wire rd_end = rd_n & ~rd_n_d;
 wire wr_end = wr_n & ~wr_n_d;
 wire cs0 = !cs_n[0] && cs_n[1];
 wire cs1 = !cs_n[1] && cs_n[0];
+
+wire rd_trig = SYNC_BUS ? (!rd_n) : rd_end;
+wire wr_trig = SYNC_BUS ? (!wr_n) : wr_end;
 
 //---------- Image and geometry ------------
 
@@ -286,31 +290,52 @@ endtask
 wire tf_ok = (state == ST_IDLE || state == ST_DRQIN || state == ST_DRQOUT || examining);
 // a command can start when no command runs, or one waits for the host (it is dropped)
 wire cmd_ok = (state == ST_IDLE || state == ST_DRQIN || state == ST_DRQOUT) && !mnt[sel] && geo_ok[sel];
-wire cmd_start = !reset && !(pend_reset && !sdc_wait) && wr_end && cs0 && a == 3'd7 && here && cmd_ok;
+wire cmd_start = !reset && !(pend_reset && !sdc_wait) && wr_trig && cs0 && a == 3'd7 && here && cmd_ok;
+
+reg [15:0] dout_reg = 16'd0;
+
+wire [15:0] dout_comb =
+	!here ? 16'h0000 :
+	cs0 ? (
+		(a == 3'd0) ? q :
+		(a == 3'd1) ? { 8'h00, r_err[sel] } :
+		(a == 3'd2) ? { 8'h00, r_count } :
+		(a == 3'd3) ? { 8'h00, r_sector } :
+		(a == 3'd4) ? { 8'h00, r_cyl_lo } :
+		(a == 3'd5) ? { 8'h00, r_cyl_hi } :
+		(a == 3'd6) ? { 8'h00, r_head } :
+		{ 8'h00, status }
+	) :
+	(cs1 && a == 3'd6) ? { 8'h00, status } :
+	16'h0000;
+
+assign dout = SYNC_BUS ? dout_comb : dout_reg;
 
 integer i;
 always @(posedge clk) begin
 	we <= 1'b0;
 
 	// register reads (any state: the host sees BSY while a command runs)
-	if (!here)
-		dout <= 16'h0000;
-	else if (cs0) begin
-		case (a)
-			3'd0: dout <= q;
-			3'd1: dout <= { 8'h00, r_err[sel] };
-			3'd2: dout <= { 8'h00, r_count };
-			3'd3: dout <= { 8'h00, r_sector };
-			3'd4: dout <= { 8'h00, r_cyl_lo };
-			3'd5: dout <= { 8'h00, r_cyl_hi };
-			3'd6: dout <= { 8'h00, r_head };
-			default: dout <= { 8'h00, status };
-		endcase
+	if (!SYNC_BUS) begin
+		if (!here)
+			dout_reg <= 16'h0000;
+		else if (cs0) begin
+			case (a)
+				3'd0: dout_reg <= q;
+				3'd1: dout_reg <= { 8'h00, r_err[sel] };
+				3'd2: dout_reg <= { 8'h00, r_count };
+				3'd3: dout_reg <= { 8'h00, r_sector };
+				3'd4: dout_reg <= { 8'h00, r_cyl_lo };
+				3'd5: dout_reg <= { 8'h00, r_cyl_hi };
+				3'd6: dout_reg <= { 8'h00, r_head };
+				default: dout_reg <= { 8'h00, status };
+			endcase
+		end
+		else if (cs1 && a == 3'd6)
+			dout_reg <= { 8'h00, status };
+		else
+			dout_reg <= 16'h0000;
 	end
-	else if (cs1 && a == 3'd6)
-		dout <= { 8'h00, status };
-	else
-		dout <= 16'h0000;
 
 	// mount: size 0 is an eject
 	for (i = 0; i < 2; i = i + 1)
@@ -351,7 +376,7 @@ always @(posedge clk) begin
 	end
 
 	// task file writes
-	if (wr_end && cs0 && tf_ok && a != 3'd0 && a != 3'd7) begin
+	if (wr_trig && cs0 && tf_ok && a != 3'd0 && a != 3'd7) begin
 		case (a)
 			3'd2: r_count <= din[7:0];
 			3'd3: r_sector <= din[7:0];
@@ -361,7 +386,7 @@ always @(posedge clk) begin
 			default: ; // features
 		endcase
 	end
-	if (wr_end && cs1 && a == 3'd6) begin
+	if (wr_trig && cs1 && a == 3'd6) begin
 		r_srst <= din[2];
 		if (din[2] && !r_srst)
 			pend_reset <= 1'b1;
@@ -514,7 +539,7 @@ always @(posedge clk) begin
 			end
 
 		ST_DRQIN:
-			if (rd_end && cs0 && a == 3'd0 && here) begin
+			if (rd_trig && cs0 && a == 3'd0 && here) begin
 				ptr <= ptr + 8'd1;
 				if (ptr == 8'd255) begin
 					if (op == OP_IDENT || left == 9'd1) begin
@@ -534,7 +559,7 @@ always @(posedge clk) begin
 			end
 
 		ST_DRQOUT:
-			if (wr_end && cs0 && a == 3'd0 && here) begin
+			if (wr_trig && cs0 && a == 3'd0 && here) begin
 				we <= 1'b1;
 				wa <= ptr;
 				wd <= din;
