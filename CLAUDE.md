@@ -75,3 +75,7 @@ Planned:
 - XST builds the write of a part of a vector (`kb[n*8 +: 8] <= d`, `joy[12:8] <= d`) as a mux over the whole vector, a LUT per bit instead of a clock enable: use one register per field (the decoders of `kg_mcu`; 130 LUTs on the nanomig configuration). Standalone numbers of a small module are noisy (Reduce Control Sets moves enables into LUTs on its own); the measure that counts is the build of a core.
 - Build at least one core that uses the module and compare utilization (`*_map.mrp`) and timing (`*.par`, "All constraints were met") with the build before the change.
 - Changes to the MCU link need a check on hardware with the firmware: rom loading, OSD, keyboard, joysticks, file mounter.
+
+## Memory
+
+The Claude Code memory of this repo is shared with all karabas-go repos: `~/.claude/projects/<this project>/memory` is a symlink to `../karabas-go-notes` (private repo `andykarpov/karabas-go-notes`, `link.sh` there makes the links). Its `MEMORY.md` is split by repo; commit and push it after every memory change.
