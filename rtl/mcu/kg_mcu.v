@@ -34,6 +34,7 @@ module kg_mcu #(
 	parameter ENABLE_MATRIX = 1,
 	parameter ENABLE_DEBUG = 0,
 	parameter ENABLE_IMG = 0,
+	parameter ENABLE_BK = 0,        // caps bit 3: the core has kg_bk_ram on the file mounter (needs ENABLE_IMG)
 	parameter ENABLE_FILE = 1,      // file loader (ioctl / file commands), see kg_mcu_loader
 	parameter FILE_CMDS = 0,
 	parameter FILE_WR_EACH = 1,
@@ -162,6 +163,7 @@ module kg_mcu #(
 	output wire IMG_Q_ACK,
 	output wire IMG_PHYS_WR,
 	output wire [15:0] IMG_PHYS,
+	output wire [7:0] IMG_FLUSH,    // CMD_IMG_FLUSH of the mcu for slot n, one clock (kg_bk_ram)
 
 	// esp8266 uart bridge: a byte to the esp (one clock), a byte from it (held until the ack)
 	output wire [7:0] ESP_UART_TX_DATA,
@@ -198,7 +200,7 @@ wire [7:0] rx_cmd, rx_addr, rx_data, bst_type, bst_data;
 wire [31:0] bst_addr;
 wire spi_miso, spi_sel;
 
-kg_mcu_link #(.BURST_MAX_MHZ(BURST_MAX_MHZ), .CS_FILTER(CS_FILTER), .TX_PORTS(P)) u_link(
+kg_mcu_link #(.BURST_MAX_MHZ(BURST_MAX_MHZ), .CS_FILTER(CS_FILTER), .CAPS_BK(ENABLE_BK), .TX_PORTS(P)) u_link(
 	.clk(CLK), .reset(~N_RESET),
 	.sck(MCU_SCK), .mosi(MCU_MOSI), .miso(spi_miso), .miso_en(spi_sel),
 	.cs_n(MCU_SS), .burst_cs_n(MCU_BURST_CS_N), .burst_ready(MCU_BURST_READY),
@@ -306,7 +308,7 @@ generate
 			.bst_wr(bst_wr), .bst_type(bst_type), .bst_addr(bst_addr), .bst_data(bst_data),
 			.img_mounted(IMG_MOUNTED), .img_size(IMG_SIZE), .img_data_wr(IMG_DATA_WR),
 			.img_data_addr(IMG_DATA_ADDR), .img_data(IMG_DATA), .img_result_wr(IMG_RESULT_WR),
-			.img_result(IMG_RESULT), .img_sum(IMG_SUM), .img_phys_wr(IMG_PHYS_WR), .img_phys(IMG_PHYS),
+			.img_result(IMG_RESULT), .img_sum(IMG_SUM), .img_phys_wr(IMG_PHYS_WR), .img_phys(IMG_PHYS), .img_flush(IMG_FLUSH),
 			.img_q_wr(IMG_Q_WR), .img_q_di(IMG_Q_DI), .img_q_ack(IMG_Q_ACK),
 			.tx_req(tx_req[7]), .tx_data(tx_data[7*24 +: 24]), .tx_grant(tx_grant[7]), .tx_full(tx_full)
 		);
@@ -323,6 +325,7 @@ generate
 		assign IMG_Q_ACK = 1'b0;
 		assign IMG_PHYS_WR = 1'b0;
 		assign IMG_PHYS = 16'd0;
+		assign IMG_FLUSH = 8'd0;
 		assign tx_req[7] = 1'b0;
 		assign tx_data[7*24 +: 24] = 24'd0;
 	end

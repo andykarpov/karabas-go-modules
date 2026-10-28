@@ -15,6 +15,7 @@
    IMG_BUF_BANK x b   bit 0: the half of the sector of the next data
    IMG_BUF_DATA a d   (or a burst of that type) a byte of the sector read: img_data_wr one
                       clock with img_data_addr, img_data
+   IMG_FLUSH s 00     img_flush[s] one clock: write the dirty sectors of slot s now (kg_bk_ram)
  Frames to the mcu (requests, write data): img_q_di held with img_q_wr until img_q_ack (one
  clock); a word goes out when the queue has room and not in the clock after an ack (the sender
  is putting up its next word then).
@@ -43,6 +44,7 @@ module kg_mcu_img (
 	output wire [15:0] img_sum,
 	output reg img_phys_wr = 1'b0,
 	output reg [15:0] img_phys = 16'd0,
+	output reg [7:0] img_flush = 8'd0,
 
 	input wire img_q_wr,
 	input wire [23:0] img_q_di,
@@ -69,6 +71,7 @@ always @(posedge clk) begin
 	img_phys_wr <= 1'b0;
 	img_data_wr <= 1'b0;
 	img_result_wr <= 1'b0;
+	img_flush <= 8'd0;
 	if (rx_stb)
 		case (rx_cmd)
 			CMD_IMG_SLOT: slot <= rx_data[2:0];
@@ -104,6 +107,11 @@ always @(posedge clk) begin
 				img_result_wr <= 1'b1;
 			end
 			CMD_IMG_BUF_BANK: bank <= rx_data[0];
+			CMD_IMG_FLUSH:
+				if (rx_data == 8'h00)
+					for (i = 0; i < 8; i = i + 1)
+						if (rx_addr[2:0] == i[2:0])
+							img_flush[i] <= 1'b1;
 			CMD_IMG_BUF_DATA: begin
 				img_data_addr <= { bank, rx_addr };
 				img_data <= rx_data;
