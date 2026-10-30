@@ -84,6 +84,7 @@ localparam ST_FETCH = 4'd7;   // read: the sector into the buffer
 localparam ST_DRQIN = 4'd8;   // read: the host takes the buffer
 localparam ST_DRQOUT = 4'd9;  // write: the host fills the buffer
 localparam ST_STORE = 4'd10;  // write: the buffer to the image
+localparam ST_CALC3 = 4'd11;
 
 localparam OP_READ = 2'd0;
 localparam OP_WRITE = 2'd1;
@@ -225,6 +226,7 @@ reg  [1:0]  op = OP_READ;
 reg  [8:0]  left = 9'd0;      // sectors of the command, this one included
 reg  [31:0] lba = 32'd0;
 reg  [20:0] chs_t = 21'd0;
+reg  [28:0] chs_p = 29'd0;     // chs_t * spt, a clock of its own (the multiplier and the adder in one clock miss 50 MHz)
 reg         pend_reset = 1'b0;
 reg         sdc_wait = 1'b0;  // the request of this index is with img_sdc
 reg         geo_rd = 1'b0;    // the request is the sector 0 of a mount
@@ -493,10 +495,15 @@ always @(posedge clk) begin
 		end
 
 		ST_CALC2: begin
+			chs_p <= chs_t * s_spt;
+			state <= ST_CALC3;
+		end
+
+		ST_CALC3: begin
 			if (lba_mode)
 				lba <= { 4'd0, r_head[3:0], r_cyl_hi, r_cyl_lo, r_sector };
 			else
-				lba <= chs_t * s_spt + r_sector - 32'd1;
+				lba <= chs_p + r_sector - 32'd1;
 			state <= ST_CHECK;
 		end
 
