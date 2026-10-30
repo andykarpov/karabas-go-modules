@@ -123,6 +123,7 @@ module kg_mcu #(
 	output wire [31:0] FILELOAD_ADDR,
 	output wire [7:0] FILELOAD_DATA,
 	output wire FILELOAD_WR,
+	output wire [7:0] FILELOAD_SLOT, // the slot of the FL item of the file (FILE_CMDS 0), from IOCTL_SLOT
 
 	// ft812
 	output wire FT_SPI_ON,
@@ -248,7 +249,7 @@ kg_mcu_loader #(.ENABLE_FILE(ENABLE_FILE), .FILE_CMDS(FILE_CMDS), .FILE_WR_EACH(
 	.bst_wr(bst_wr), .bst_type(bst_type), .bst_addr(bst_addr), .bst_data(bst_data),
 	.rom_active(ROMLOADER_ACTIVE), .rom_addr(ROMLOAD_ADDR), .rom_data(ROMLOAD_DATA), .rom_wr(ROMLOAD_WR),
 	.file_reset(FILELOAD_RESET), .file_active(FILELOAD_ACTIVE), .file_size(FILELOAD_SIZE),
-	.file_addr(FILELOAD_ADDR), .file_data(FILELOAD_DATA), .file_wr(FILELOAD_WR)
+	.file_addr(FILELOAD_ADDR), .file_data(FILELOAD_DATA), .file_wr(FILELOAD_WR), .file_slot(FILELOAD_SLOT)
 );
 assign IOCTL_ACTIVE = FILELOAD_ACTIVE;
 

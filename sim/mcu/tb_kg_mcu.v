@@ -69,11 +69,11 @@ kg_mcu #(.CS_FILTER(3), .RTC_SKIP_0D(0), .RTC_SEND_LIMIT('hF0), .ENABLE_DEBUG(1)
 // rk86 / spec256 (no chip select filter: the spike test shows what it is for)
 wire rk_reset, rk_active, rk_wr, rk_romwr;
 wire [31:0] rk_size, rk_addr;
-wire [7:0] rk_data;
+wire [7:0] rk_data, rk_slot;
 wire [15:0] rk_softsw;
 kg_mcu #(.CS_FILTER(0), .ENABLE_FILE(1), .FILE_CMDS(0), .FILE_WR_EACH(0), .FILE_TO_ROM(0)) rk(`INPUTS(1),
 	.FILELOAD_RESET(rk_reset), .FILELOAD_ACTIVE(rk_active), .FILELOAD_SIZE(rk_size),
-	.FILELOAD_ADDR(rk_addr), .FILELOAD_DATA(rk_data), .FILELOAD_WR(rk_wr), .ROMLOAD_WR(rk_romwr),
+	.FILELOAD_ADDR(rk_addr), .FILELOAD_DATA(rk_data), .FILELOAD_WR(rk_wr), .FILELOAD_SLOT(rk_slot), .ROMLOAD_WR(rk_romwr),
 	.SOFTSW_COMMAND(rk_softsw));
 
 // alf / nes
@@ -318,6 +318,7 @@ initial begin
 	// ---- rk86 / spec256: ioctl on FILELOAD_*, a write per address change ----
 	frame(8'h50, 8'h00, 8'h01);                         // slot: FILELOAD_RESET
 	if (rk_resets != 1) fail("FILELOAD_RESET pulses");
+	if (rk_slot !== 8'h01) fail("FILELOAD_SLOT 1");
 	for (i = 0; i < 4; i = i + 1) frame(8'h51, i, 8'h10 * (i + 1));
 	if (rk_size !== 32'h40302010) fail("FILELOAD_SIZE");
 	frame(8'h55, 8'h00, 8'h01);

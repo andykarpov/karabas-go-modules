@@ -15,7 +15,7 @@
    not written). While rom_active is 0 the address is followed, so turning it on writes nothing.
 
  File loader, with FILE_CMDS 0 the ioctl commands of the FL osd items:
-   IOCTL_SLOT x x  file_reset one clock (a new file)
+   IOCTL_SLOT x s  file_reset one clock (a new file), file_slot = s (the slot of its FL item)
    IOCTL_SIZE n d  file_size byte n (0..3)
    IOCTL_STATE x d file_active = d[0]
    IOCTL_BANK n d, IOCTL_DATA a d (and bursts): as ROMBANK / ROMDATA
@@ -54,7 +54,8 @@ module kg_mcu_loader #(
 	output wire [31:0] file_size,
 	output reg [31:0] file_addr = 32'hFFFFFFFF,
 	output reg [7:0] file_data = 8'd0,
-	output reg file_wr = 1'b0
+	output reg file_wr = 1'b0,
+	output reg [7:0] file_slot = 8'd0
 );
 
 `include "kg_mcu_cmds.vh"
@@ -112,7 +113,10 @@ always @(posedge clk) begin
 			rom_active <= rx_data[0];
 		if (ENABLE_FILE && FILE_CMDS == 0)
 			case (rx_cmd)
-				CMD_IOCTL_SLOT: file_reset <= 1'b1;
+				CMD_IOCTL_SLOT: begin
+					file_reset <= 1'b1;
+					file_slot <= rx_data;
+				end
 				CMD_IOCTL_STATE: file_active <= rx_data[0];
 				CMD_IOCTL_SIZE:
 					case (rx_addr)
