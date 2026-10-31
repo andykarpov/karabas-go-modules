@@ -20,6 +20,8 @@ jobs:
         run: sim/audio/run_audio_sim.sh
       - name: kg_sync
         run: sim/ctl/run_ctl_sim.sh
+      - name: HDMI with the FT812
+        run: sim/hdmi/run_hdmi_sim.sh
       - name: kg_mcu
         run: sim/mcu/run_kg_mcu_sim.sh
       - name: Verilog ports against the VHDL

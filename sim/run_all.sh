@@ -1,6 +1,6 @@
 #!/bin/bash
 # All tests of this repository.
-# - always (the CI runs these): lint, memories, audio, kg_sync, kg_mcu, the kg_* ports against the VHDL
+# - always (the CI runs these): lint, memories, audio, kg_sync, the HDMI of the FT812, kg_mcu, the kg_* ports against the VHDL
 #   they replace (verilator, Icarus Verilog, ghdl);
 # - with ISE 14.7 in /opt/Xilinx/14.7: also the ports of spi_slave and overlay, the MCU link (ISim),
 #   and the coregen equivalence when the sibling core repositories are there.
@@ -14,6 +14,7 @@ run lint/run_lint.sh
 run mem/run_mem_sim.sh
 run audio/run_audio_sim.sh
 run ctl/run_ctl_sim.sh
+run hdmi/run_hdmi_sim.sh
 run mcu/run_kg_mcu_sim.sh
 if [ -f /opt/Xilinx/14.7/ISE_DS/settings64.sh ]; then
 	run eq/run_eq.sh
