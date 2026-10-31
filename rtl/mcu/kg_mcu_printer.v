@@ -20,7 +20,9 @@ module kg_mcu_printer #(
 	input wire rx_stb,
 	input wire [7:0] rx_cmd,
 	input wire [7:0] rx_addr,
-	input wire [7:0] rx_data,
+	/* verilator lint_off UNUSEDSIGNAL */
+	input wire [7:0] rx_data,         // bit 7 (busy) only
+	/* verilator lint_on UNUSEDSIGNAL */
 
 	input wire [7:0] prn_data,
 	input wire prn_wr,
