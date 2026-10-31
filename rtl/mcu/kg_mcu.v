@@ -43,7 +43,8 @@ module kg_mcu #(
 	parameter ENABLE_SD2 = 1,       // second SD card chip select passed through
 	parameter ENABLE_ESP = 0,       // the ESP8266 uart bridge (CMD_ESP_UART), see kg_mcu_esp
 	parameter ENABLE_PS2_CMD = 0,   // CMD_PS2_SCANCODE to mcu (Next186 kbd/mouse control)
-	parameter ENABLE_FLASHBOOT = 0  // CMD_FLASHBOOT to the mcu (next: the reload of a core), see port 9
+	parameter ENABLE_FLASHBOOT = 0, // CMD_FLASHBOOT to the mcu (next: the reload of a core), see port 9
+	parameter ENABLE_MIDI = 0       // caps bit 4: MIDI IN of a USB keyboard (CMD_MIDI), see kg_mcu_midi
 ) (
 	input wire CLK,
 	input wire N_RESET,
@@ -186,6 +187,11 @@ module kg_mcu #(
 	input wire [4:0] FLASHBOOT_COREID,
 	/* verilator lint_on UNUSEDSIGNAL */
 
+	// midi in (usb keyboard): a byte, one clock; lost: one clock with the byte after a gap
+	output wire [7:0] MIDI_DATA,
+	output wire MIDI_WR,
+	output wire MIDI_LOST,
+
 	output wire BUSY
 );
 
@@ -206,7 +212,7 @@ wire [7:0] rx_cmd, rx_addr, rx_data, bst_type, bst_data;
 wire [31:0] bst_addr;
 wire spi_miso, spi_sel;
 
-kg_mcu_link #(.BURST_MAX_MHZ(BURST_MAX_MHZ), .CS_FILTER(CS_FILTER), .CAPS_BK(ENABLE_BK), .TX_PORTS(P)) u_link(
+kg_mcu_link #(.BURST_MAX_MHZ(BURST_MAX_MHZ), .CS_FILTER(CS_FILTER), .CAPS_BK(ENABLE_BK), .CAPS_MIDI(ENABLE_MIDI), .TX_PORTS(P)) u_link(
 	.clk(CLK), .reset(~N_RESET),
 	.sck(MCU_SCK), .mosi(MCU_MOSI), .miso(spi_miso), .miso_en(spi_sel),
 	.cs_n(MCU_SS), .burst_cs_n(MCU_BURST_CS_N), .burst_ready(MCU_BURST_READY),
@@ -252,6 +258,21 @@ kg_mcu_loader #(.ENABLE_FILE(ENABLE_FILE), .FILE_CMDS(FILE_CMDS), .FILE_WR_EACH(
 	.file_addr(FILELOAD_ADDR), .file_data(FILELOAD_DATA), .file_wr(FILELOAD_WR), .file_slot(FILELOAD_SLOT)
 );
 assign IOCTL_ACTIVE = FILELOAD_ACTIVE;
+
+// midi in: no transmit port
+generate
+	if (ENABLE_MIDI) begin : kg_mcu_midi_on
+		kg_mcu_midi u_midi(
+			.clk(CLK), .rx_stb(rx_stb), .rx_cmd(rx_cmd), .rx_addr(rx_addr), .rx_data(rx_data),
+			.midi_data(MIDI_DATA), .midi_wr(MIDI_WR), .midi_lost(MIDI_LOST)
+		);
+	end
+	else begin : kg_mcu_midi_off
+		assign MIDI_DATA = 8'd0;
+		assign MIDI_WR = 1'b0;
+		assign MIDI_LOST = 1'b0;
+	end
+endgenerate
 
 // uart: ports 0-2
 generate

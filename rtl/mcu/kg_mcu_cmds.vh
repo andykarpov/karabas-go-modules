@@ -17,6 +17,7 @@ localparam [7:0] CMD_PS2_SCANCODE = 8'h0B;
 localparam [7:0] CMD_FILEBANK     = 8'h0C;
 localparam [7:0] CMD_FILEDATA     = 8'h0D;
 localparam [7:0] CMD_FILELOADER   = 8'h0E;
+localparam [7:0] CMD_MIDI         = 8'h16; // a MIDI byte of a USB keyboard, to cores with caps bit 4 (kg_mcu_midi)
 localparam [7:0] CMD_OSD          = 8'h20;
 localparam [7:0] CMD_IMG_SLOT     = 8'h40;
 localparam [7:0] CMD_IMG_SIZE     = 8'h41;

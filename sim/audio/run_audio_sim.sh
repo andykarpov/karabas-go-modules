@@ -1,6 +1,6 @@
 #!/bin/bash
-# pcm5102.v and kg_pcm5102.v (tb_pcm5102.v, the I2S stream) and audio_peaks.v (tb_audio_peaks.v), Icarus Verilog.
-# Both print "0 errors".
+# pcm5102.v and kg_pcm5102.v (tb_pcm5102.v, the I2S stream), audio_peaks.v (tb_audio_peaks.v) and
+# kg_midi_tx.v (tb_midi_tx.v, the 31250 baud line), Icarus Verilog. Each prints "0 errors".
 set -e
 cd "$(dirname "$0")"
 M=$(cd ../.. && pwd)
@@ -18,3 +18,7 @@ for m in pcm5102 audio_peaks; do
 	grep -E "ERROR|$tb:" $tb.log
 	grep -q "$tb: 0 errors" $tb.log
 done
+iverilog -g2001 -Wall -Wno-timescale -o tb_midi_tx.vvp "$M/sim/audio/tb_midi_tx.v" "$M/rtl/audio/kg_midi_tx.v" "$M/rtl/mem/kg_fifo.v"
+vvp -n tb_midi_tx.vvp > tb_midi_tx.log
+grep -E "ERROR|tb_midi_tx:" tb_midi_tx.log
+grep -q "tb_midi_tx: 0 errors" tb_midi_tx.log
