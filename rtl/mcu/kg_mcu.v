@@ -21,7 +21,7 @@
  - no buffer ports.
 
  Transmit priority: CAPS, uart byte, dll, dlm, rtc, matrix, debug addr, debug data, img, esp,
- flashboot.
+ flashboot, ps2 command, printer.
 */
 
 module kg_mcu #(
@@ -44,7 +44,8 @@ module kg_mcu #(
 	parameter ENABLE_ESP = 0,       // the ESP8266 uart bridge (CMD_ESP_UART), see kg_mcu_esp
 	parameter ENABLE_PS2_CMD = 0,   // CMD_PS2_SCANCODE to mcu (Next186 kbd/mouse control)
 	parameter ENABLE_FLASHBOOT = 0, // CMD_FLASHBOOT to the mcu (next: the reload of a core), see port 9
-	parameter ENABLE_MIDI = 0       // caps bit 4: MIDI IN of a USB keyboard (CMD_MIDI), see kg_mcu_midi
+	parameter ENABLE_MIDI = 0,      // caps bit 4: MIDI IN of a USB keyboard (CMD_MIDI), see kg_mcu_midi
+	parameter ENABLE_PRINTER = 0    // the USB printer of the mcu (CMD_PRINTER_DATA / _STATUS), see kg_mcu_printer
 ) (
 	input wire CLK,
 	input wire N_RESET,
@@ -192,6 +193,13 @@ module kg_mcu #(
 	output wire MIDI_WR,
 	output wire MIDI_LOST,
 
+	// printer (ENABLE_PRINTER): PRN_WR (one clock) sends PRN_DATA; PRN_BUSY until the mcu took it
+	/* verilator lint_off UNUSEDSIGNAL */
+	input wire [7:0] PRN_DATA,
+	input wire PRN_WR,
+	/* verilator lint_on UNUSEDSIGNAL */
+	output wire PRN_BUSY,
+
 	output wire BUSY
 );
 
@@ -199,11 +207,11 @@ module kg_mcu #(
 
 `include "kg_mcu_cmds.vh"
 
-localparam P = 11;
+localparam P = 12;
 wire [P-1:0] tx_req;
 wire [P*24-1:0] tx_data;
 /* verilator lint_off UNUSEDSIGNAL */
-wire [P-1:0] tx_grant;  // used by debug, img, esp and flashboot
+wire [P-1:0] tx_grant;  // used by debug, img, esp, flashboot and printer
 wire tx_full;
 /* verilator lint_on UNUSEDSIGNAL */
 
@@ -408,6 +416,22 @@ generate
 	else begin : kg_mcu_ps2_cmd_off
 		assign tx_req[10] = 1'b0;
 		assign tx_data[10*24 +: 24] = 24'd0;
+	end
+endgenerate
+
+// printer: port 11
+generate
+	if (ENABLE_PRINTER) begin : kg_mcu_printer_on
+		kg_mcu_printer u_printer(
+			.clk(CLK), .rx_stb(rx_stb), .rx_cmd(rx_cmd), .rx_addr(rx_addr), .rx_data(rx_data),
+			.prn_data(PRN_DATA), .prn_wr(PRN_WR), .prn_busy(PRN_BUSY),
+			.tx_req(tx_req[11]), .tx_data(tx_data[11*24 +: 24]), .tx_grant(tx_grant[11]), .tx_full(tx_full)
+		);
+	end
+	else begin : kg_mcu_printer_off
+		assign PRN_BUSY = 1'b1;
+		assign tx_req[11] = 1'b0;
+		assign tx_data[11*24 +: 24] = 24'd0;
 	end
 endgenerate
 
