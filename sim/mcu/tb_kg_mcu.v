@@ -8,7 +8,7 @@
 //   alf alf / nes: the file commands 0C-0E;
 //   nm  nanomig: a full reply queue holds a file mounter word until there is room;
 //   esp menu: the ESP8266 uart bridge, bytes both ways, a byte from the ESP held while the reply
-//       queue is full;
+//       queue is full; MIDI IN (CMD_MIDI, caps bit 4), a gap in the byte counter;
 //   nx  next: flashboot, one word per rising FLASHBOOT_START, held while BUSY.
 // Also: the chip select filter (a short high spike in a frame; ts filters, rk does not), a frame
 // decoded once (MS_UPD and the scancode flags toggle once).
@@ -93,10 +93,26 @@ reg [7:0] esp_rx_data = 8'h00;
 reg esp_rx_wr = 1'b0;
 wire [7:0] esp_tx_data;
 wire esp_tx_wr, esp_rx_ack, ts_esp_tx_wr;
-kg_mcu #(.ENABLE_RTC(0), .ENABLE_UART(0), .ENABLE_MATRIX(0), .ENABLE_FILE(0), .ENABLE_SD2(0), .ENABLE_ESP(1))
+wire [7:0] midi_data;
+wire midi_wr, midi_lost;
+kg_mcu #(.ENABLE_RTC(0), .ENABLE_UART(0), .ENABLE_MATRIX(0), .ENABLE_FILE(0), .ENABLE_SD2(0), .ENABLE_ESP(1),
+	.ENABLE_MIDI(1))
 	esp(`INPUTS(4), .ESP_UART_TX_DATA(esp_tx_data), .ESP_UART_TX_WR(esp_tx_wr),
-	.ESP_UART_RX_DATA(esp_rx_data), .ESP_UART_RX_WR(esp_rx_wr), .ESP_UART_RX_ACK(esp_rx_ack));
+	.ESP_UART_RX_DATA(esp_rx_data), .ESP_UART_RX_WR(esp_rx_wr), .ESP_UART_RX_ACK(esp_rx_ack),
+	.MIDI_DATA(midi_data), .MIDI_WR(midi_wr), .MIDI_LOST(midi_lost));
 assign ts_esp_tx_wr = ts.ESP_UART_TX_WR;
+
+// midi bytes of the menu, and of tsconf (no ENABLE_MIDI)
+reg [7:0] midi_log [0:15];
+integer midi_n = 0, midi_lost_n = 0, ts_midi_n = 0;
+always @(posedge clk) begin
+	if (midi_wr) begin
+		if (midi_n < 16) midi_log[midi_n] <= midi_data;
+		midi_n <= midi_n + 1;
+	end
+	if (midi_lost) midi_lost_n <= midi_lost_n + 1;
+	if (ts.MIDI_WR) ts_midi_n <= ts_midi_n + 1;
+end
 
 // next: flashboot, rtc, matrix
 wire nx_busy;
@@ -421,6 +437,31 @@ initial begin
 		errors = errors + 1;
 	end
 	sel = 3'd0;
+
+	// ---- menu: midi in ----
+	sel = 3'd4;
+	flush;
+	frame(8'hF7, 8'h00, 8'h01);
+	expect_reply(24'hF7_13_00);                         // caps: bursts + ready + midi
+	frame(8'h16, 8'h00, 8'h90);
+	frame(8'h16, 8'h01, 8'h3C);
+	frame(8'h16, 8'h02, 8'h64);
+	expect_no_reply;                                    // midi is mcu -> fpga only
+	if (midi_n != 3 || midi_log[0] !== 8'h90 || midi_log[1] !== 8'h3C || midi_log[2] !== 8'h64)
+		fail("midi bytes");
+	if (midi_lost_n != 0) fail("midi lost without a gap");
+	frame(8'h16, 8'h05, 8'h80);                         // bytes 3, 4 lost in the firmware
+	frame(8'h16, 8'h06, 8'h3C);
+	if (midi_n != 5 || midi_log[3] !== 8'h80 || midi_log[4] !== 8'h3C) fail("midi bytes after a gap");
+	if (midi_lost_n != 1) fail("midi lost once after a gap");
+	frame(8'h16, 8'hFF, 8'h00);                         // a gap again, then the counter wraps
+	frame(8'h16, 8'h00, 8'h01);
+	if (midi_lost_n != 2) fail("midi lost at the wrap");
+	if (ts_midi_n != 0) fail("midi without ENABLE_MIDI");
+	sel = 3'd0;
+	frame(8'hF7, 8'h00, 8'h01);
+	expect_reply(24'hF7_03_00);                         // tsconf: no caps bit 4
+	flush;
 
 	// ---- next: flashboot ----
 	// mcu.vhd of next put the word in the queue in every clock while FLASHBOOT_START was high

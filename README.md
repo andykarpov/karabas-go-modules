@@ -11,7 +11,7 @@ The cores include this repository as a git submodule in `modules/` and list the 
 | `rtl/ctl` | `kg_soft_switches` (OSD switches of the mcu), `kg_sync` (static signals into another clock: `DVI_ONLY` of `kg_mcu` into the HDMI pixel clock) |
 | `rtl/hid` | `kg_cursor` (absolute mouse position for the Kempston mouse) |
 | `rtl/clk` | `kg_pll` (PLL_BASE), `kg_dcm` (DCM_SP): the coregen clocking wizard cores with the same parameters |
-| `rtl/audio` | `pcm5102.v` / `kg_pcm5102` (I2S DAC), `dac.vhd` / `kg_sigma_delta_dac`, `audio_peaks.v` (level meters of the MCU) |
+| `rtl/audio` | `pcm5102.v` / `kg_pcm5102` (I2S DAC), `dac.vhd` / `kg_sigma_delta_dac`, `audio_peaks.v` (level meters of the MCU), `kg_midi_tx` (MIDI out, 31250 baud) |
 | `rtl/video/hdmi` | `zhdmi_top.v` and the zhdmi HDMI transmitter, `hdmi_pll.v`, `dvi*.vhd` |
 | `rtl/video/osd` | `overlay.vhd` / `kg_osd_overlay` (OSD menus of the MCU), `pix_doubler.vhd` / `kg_pix_doubler` |
 
