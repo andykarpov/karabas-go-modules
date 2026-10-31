@@ -119,6 +119,47 @@ module BUFG #(
 assign O = 0;
 endmodule
 
+module DCM_CLKGEN #(
+	parameter SPREAD_SPECTRUM = "NONE",
+	parameter STARTUP_WAIT = "FALSE",
+	parameter integer CLKFXDV_DIVIDE = 2,
+	parameter integer CLKFX_DIVIDE = 1,
+	parameter integer CLKFX_MULTIPLY = 4,
+	parameter real CLKFX_MD_MAX = 0.0,
+	parameter real CLKIN_PERIOD = 0.0
+) (
+	output wire CLKFX180,
+	output wire CLKFX,
+	output wire CLKFXDV,
+	output wire LOCKED,
+	output wire PROGDONE,
+	output wire [2:1] STATUS,
+	input wire CLKIN,
+	input wire FREEZEDCM,
+	input wire PROGCLK,
+	input wire PROGDATA,
+	input wire PROGEN,
+	input wire RST
+);
+assign CLKFX180 = 0;
+assign CLKFX = 0;
+assign CLKFXDV = 0;
+assign LOCKED = 0;
+assign PROGDONE = 0;
+assign STATUS = 0;
+endmodule
+
+module BUFGMUX #(
+	parameter CLK_SEL_TYPE = "SYNC"
+) (
+	output wire O,
+	input wire I0,
+	input wire I1,
+	input wire S
+);
+assign O = 0;
+endmodule
+
 module IBUFG #(
 	parameter CAPACITANCE = "DONT_CARE",
 	parameter IBUF_DELAY_VALUE = "0",

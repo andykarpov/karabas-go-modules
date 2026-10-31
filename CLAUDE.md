@@ -25,12 +25,12 @@ Now (old file -> its `kg_*` replacement):
 - `rtl/mem`: `dpram.v` (-> `kg_tdpram` with one clock), `fifo.v` -> `kg_fifo`; `kg_async_fifo` (two clocks, Gray pointers); the coregen replacements `kg_spram`, `kg_sprom`, `kg_sdpram`, `kg_tdpram`, `kg_dist_sdpram`, `kg_dist_spram`.
 - `rtl/clk`: `kg_pll`, `kg_dcm`. `rtl/ctl`: `kg_soft_switches` (the `soft_switches.vhd` of the cores), `kg_sync` (synchroniser of static signals: `DVI_ONLY` of `kg_mcu` into the pixel clock of HDMI). `rtl/hid`: `kg_cursor` (their `cursor.vhd`).
 - `rtl/audio`: `pcm5102.v` -> `kg_pcm5102` (sends bit 0, see its header), `dac.vhd` -> `kg_sigma_delta_dac`, `audio_peaks.v`, `kg_midi_tx` (a MIDI out port: fifo + 31250 baud, the thru of the MIDI IN to the SAM2695).
-- `rtl/video/hdmi`: `zhdmi_top.v`, zhdmi, `hdmi_pll.v`, `dvi*.vhd` (third-party VHDL, kept). `rtl/video/osd`: `overlay.vhd` -> `kg_osd_overlay` (`ALWAYS_ON` and `H_DIV4_WIDTH` for the menu, `V_OFFSET_IN` for a vertical offset from the core: baseconf), `pix_doubler.vhd` -> `kg_pix_doubler`.
-- `sim/` (`lint`, `mem`, `audio`, `ctl`, `eq`, `mcu`, `ipcore_eq`, `run_all.sh`); `tools/coe2hex.py`.
+- `rtl/video/hdmi`: `zhdmi_top.v`, zhdmi, `hdmi_pll.v` (one fixed frequency), `pll_reset.v`, `dvi*.vhd` (third-party VHDL, kept); `kg_hdmi_ft` (the HDMI of the Mini boards with the FT812 as the second source: the `hdmi_top.v` of menu / tsconf, `CLKRATE` / `REF_MHZ` the clock of the core) with `kg_hdmi_ft_pll` (their `hdmi_pll.v`: DCM_CLKGEN programmed once per FT frequency, `sim/hdmi/tb_hdmi_ft_pll.v`) and `kg_freq_counter` (their `freq_counter.vhd`). `rtl/video/osd`: `overlay.vhd` -> `kg_osd_overlay` (`ALWAYS_ON` and `H_DIV4_WIDTH` for the menu, `V_OFFSET_IN` for a vertical offset from the core: baseconf), `pix_doubler.vhd` -> `kg_pix_doubler`.
+- `sim/` (`lint`, `mem`, `audio`, `ctl`, `hdmi`, `eq`, `mcu`, `ipcore_eq`, `run_all.sh`); `tools/coe2hex.py`.
 
 Planned:
 
-- `rtl/hid`: the keyboard and joystick decoders (`kg_hid_keys`, `kg_joy_map`), `kg_usb_ps2`; `rtl/audio`: `kg_audio_lpf`; `rtl/video/hdmi`: `kg_hdmi_top`.
+- `rtl/hid`: the keyboard and joystick decoders (`kg_hid_keys`, `kg_joy_map`), `kg_usb_ps2`; `rtl/audio`: `kg_audio_lpf`.
 - `boards/{go,mini,minig}`: pin constraints (`pins.ucf`, LOC/IOSTANDARD only) per board.
 - `prj/kg_modules.prj`: the source list a core's build script appends to its own prj.
 - `tools/`: `coe2hex.py` and other helpers.
