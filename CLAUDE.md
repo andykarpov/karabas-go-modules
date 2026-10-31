@@ -25,7 +25,7 @@ Now (old file -> its `kg_*` replacement):
 - `rtl/mem`: `dpram.v` (-> `kg_tdpram` with one clock), `fifo.v` -> `kg_fifo`; `kg_async_fifo` (two clocks, Gray pointers); the coregen replacements `kg_spram`, `kg_sprom`, `kg_sdpram`, `kg_tdpram`, `kg_dist_sdpram`, `kg_dist_spram`.
 - `rtl/clk`: `kg_pll`, `kg_dcm`. `rtl/ctl`: `kg_soft_switches` (the `soft_switches.vhd` of the cores), `kg_sync` (synchroniser of static signals: `DVI_ONLY` of `kg_mcu` into the pixel clock of HDMI). `rtl/hid`: `kg_cursor` (their `cursor.vhd`).
 - `rtl/audio`: `pcm5102.v` -> `kg_pcm5102` (sends bit 0, see its header), `dac.vhd` -> `kg_sigma_delta_dac`, `audio_peaks.v`, `kg_midi_tx` (a MIDI out port: fifo + 31250 baud, the thru of the MIDI IN to the SAM2695).
-- `rtl/video/hdmi`: `zhdmi_top.v`, zhdmi, `hdmi_pll.v`, `dvi*.vhd` (third-party VHDL, kept). `rtl/video/osd`: `overlay.vhd` -> `kg_osd_overlay` (`ALWAYS_ON` and `H_DIV4_WIDTH` for the menu), `pix_doubler.vhd` -> `kg_pix_doubler`.
+- `rtl/video/hdmi`: `zhdmi_top.v`, zhdmi, `hdmi_pll.v`, `dvi*.vhd` (third-party VHDL, kept). `rtl/video/osd`: `overlay.vhd` -> `kg_osd_overlay` (`ALWAYS_ON` and `H_DIV4_WIDTH` for the menu, `V_OFFSET_IN` for a vertical offset from the core: baseconf), `pix_doubler.vhd` -> `kg_pix_doubler`.
 - `sim/` (`lint`, `mem`, `audio`, `ctl`, `eq`, `mcu`, `ipcore_eq`, `run_all.sh`); `tools/coe2hex.py`.
 
 Planned:
