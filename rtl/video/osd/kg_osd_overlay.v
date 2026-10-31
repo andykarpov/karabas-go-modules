@@ -19,7 +19,9 @@
  H_DIV4_WIDTH: per 2, else per 4; frames under 400 / 800 lines likewise), H_OFFSET / V_OFFSET
  are in those steps. Popup: the characters twice as large. With the OSD on, the video under it is
  dimmed to 5 bits per colour. ALWAYS_ON: the OSD is on also with overlay and popup off (the boot
- menu, whose screen is the OSD; its DEFAULT).
+ menu, whose screen is the OSD; its DEFAULT). V_OFFSET_IN: the vertical offset is the input
+ v_offset instead of V_OFFSET (baseconf: 34 lines at 60 Hz, 64 at 50 Hz); with 0 the input is
+ not used and may stay unconnected.
 
  overlay.vhd read the character and its font line in a process without a clock (latches); here
  the addresses are combinational (the block RAMs read every clock, the cell address stays during
@@ -33,13 +35,15 @@ module kg_osd_overlay #(
 	parameter H_OFFSET = 120, // tsconf: 120 / 72
 	parameter V_OFFSET = 72,
 	parameter H_DIV4_WIDTH = 1000, // lines of this many clocks or more: a step per 4 (menu: 1200, 800 x 600)
-	parameter ALWAYS_ON = 0
+	parameter ALWAYS_ON = 0,
+	parameter V_OFFSET_IN = 0
 ) (
 	input wire clk,
 	input wire [23:0] rgb_i,
 	output wire [23:0] rgb_o,
 	input wire hsync_i,
 	input wire vsync_i,
+	input wire [10:0] v_offset, // V_OFFSET_IN only
 	input wire [15:0] osd_command
 );
 
@@ -72,7 +76,7 @@ always @(posedge clk) begin
 end
 
 wire [10:0] hcnt = ((width < 500) ? hcnt_i : (width < H_DIV4_WIDTH) ? { 1'b0, hcnt_i[10:1] } : { 2'b00, hcnt_i[10:2] }) - H_OFFSET;
-wire [10:0] vcnt = ((height < 400) ? vcnt_i : (height < 800) ? { 1'b0, vcnt_i[10:1] } : { 2'b00, vcnt_i[10:2] }) - V_OFFSET;
+wire [10:0] vcnt = ((height < 400) ? vcnt_i : (height < 800) ? { 1'b0, vcnt_i[10:1] } : { 2'b00, vcnt_i[10:2] }) - (V_OFFSET_IN ? v_offset : V_OFFSET);
 
 // ---------------- commands ----------------
 

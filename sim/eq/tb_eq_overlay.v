@@ -7,6 +7,8 @@
 // The flash counter of overlay.vhd has no initial value (0 on the FPGA), and ISim lets a VHDL
 // signal fall back to its U driver when a force ends: the counter of both is held, 00 (flash
 // off) until FLASH_T, then 20 (on); run_eq.sh forces the old one with the same values and time.
+// V_OFFSET_IN: a third instance with the offset 72 on its input v_offset must give the output of
+// the parameter V_OFFSET 72 every clock, a fourth with 64 must differ (the input is used).
 // Ends with "tb_eq_overlay: N errors".
 
 module tb_eq_overlay;
@@ -29,6 +31,18 @@ overlay #(.H_OFFSET(120), .V_OFFSET(72)) old_dut(
 kg_osd_overlay #(.H_OFFSET(120), .V_OFFSET(72)) new_dut(
 	.clk(clk), .rgb_i(rgb), .rgb_o(new_rgb), .hsync_i(hs), .vsync_i(vs), .osd_command(cmd)
 );
+wire [23:0] in72_rgb, in64_rgb;
+kg_osd_overlay #(.H_OFFSET(120), .V_OFFSET(0), .V_OFFSET_IN(1)) in72_dut(
+	.clk(clk), .rgb_i(rgb), .rgb_o(in72_rgb), .hsync_i(hs), .vsync_i(vs), .v_offset(11'd72), .osd_command(cmd)
+);
+kg_osd_overlay #(.H_OFFSET(120), .V_OFFSET(72), .V_OFFSET_IN(1)) in64_dut(
+	.clk(clk), .rgb_i(rgb), .rgb_o(in64_rgb), .hsync_i(hs), .vsync_i(vs), .v_offset(11'd64), .osd_command(cmd)
+);
+integer in64_diffs = 0;
+always @(negedge clk) begin
+	eq_check("RGB_O v_offset 72", new_rgb, in72_rgb);
+	if (in64_rgb !== new_rgb) in64_diffs = in64_diffs + 1;
+end
 
 // clocks with an OSD pixel (ink or paper, neither the video nor the dimmed video)
 integer seed = 17, osd_clocks = 0;
@@ -134,8 +148,12 @@ endtask
 
 initial begin
 	force new_dut.flash_cnt = 8'h00;
+	force in72_dut.flash_cnt = 8'h00;
+	force in64_dut.flash_cnt = 8'h00;
 	#(FLASH_T);
 	force new_dut.flash_cnt = 8'h20;
+	force in72_dut.flash_cnt = 8'h20;
+	force in64_dut.flash_cnt = 8'h20;
 end
 
 initial begin
@@ -168,6 +186,11 @@ initial begin
 	end
 	$display("tb_eq_overlay: %0d clocks with osd, %0d checks, %0d collisions, %0d differences after a mode switch",
 		osd_clocks, checks, collisions, transition_diffs);
+	$display("tb_eq_overlay: %0d clocks differ with v_offset 64", in64_diffs);
+	if (in64_diffs == 0) begin
+		$display("ERROR: v_offset 64 gives the output of 72");
+		errors = errors + 1;
+	end
 	$display("tb_eq_overlay: %0d errors", errors);
 	$finish;
 end
