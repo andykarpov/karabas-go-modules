@@ -27,7 +27,7 @@ module kg_midi_tx #(
 );
 
 localparam integer DIV = (CLK_HZ + BAUD / 2) / BAUD;
-localparam integer CW = $clog2(DIV);
+localparam integer CW = 16; // DIV < 65536: clk up to 2 GHz (no $clog2 in the Verilog of XST / ISim)
 
 wire empty, full;
 wire [7:0] q;
