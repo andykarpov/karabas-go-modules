@@ -49,6 +49,7 @@ localparam [7:0] CMD_NOPE         = 8'hFF; // both directions
 localparam [7:0] CMD_DEBUG_ADDR    = 8'h30;
 localparam [7:0] CMD_DEBUG_DATA    = 8'h31;
 localparam [7:0] CMD_BK_MOUNT      = 8'h48; // kg_bk_ram
+localparam [7:0] CMD_FDD_CHNG      = 8'h49; // both directions: DSKCHG of a physical floppy (Go hotfix)
 localparam [7:0] CMD_AUDIO_PEAKS_L = 8'h70;
 localparam [7:0] CMD_AUDIO_PEAKS_R = 8'h71;
 /* verilator lint_on UNUSEDPARAM */

@@ -86,8 +86,20 @@ kg_mcu #(.ENABLE_FILE(1), .FILE_CMDS(1), .FILE_WR_EACH(0), .FILE_TO_ROM(0)) alf(
 	.FILELOAD_DATA(alf_data), .FILELOAD_WR(alf_wr));
 
 // nanomig
-wire nm_ack;
-kg_mcu #(.BURST_MAX_MHZ(32), .ENABLE_IMG(1)) nm(`INPUTS(3), .IMG_Q_ACK(nm_ack));
+wire nm_ack, nm_chng_wr;
+wire [15:0] nm_chng;
+reg chng_req = 1'b0;
+reg [1:0] chng_ds = 2'd0;
+kg_mcu #(.BURST_MAX_MHZ(32), .ENABLE_IMG(1), .ENABLE_FDD_CHNG(1)) nm(`INPUTS(3), .IMG_Q_ACK(nm_ack),
+	.FDD_CHNG_REQ(chng_req), .FDD_CHNG_DS(chng_ds), .FDD_CHNG_WR(nm_chng_wr), .FDD_CHNG(nm_chng));
+// the same requests on the tsconf instance (no ENABLE_IMG) and an IMG one without ENABLE_FDD_CHNG
+wire ts_chng_wr = ts.FDD_CHNG_WR;
+integer chng_n = 0, ts_chng_n = 0;
+reg [15:0] chng_last = 16'h0;
+always @(posedge clk) begin
+	if (nm_chng_wr) begin chng_n <= chng_n + 1; chng_last <= nm_chng; end
+	if (ts_chng_wr) ts_chng_n <= ts_chng_n + 1;
+end
 
 // menu: the ESP uart bridge, nothing that answers but CAPS
 reg [7:0] esp_rx_data = 8'h00;
@@ -413,6 +425,30 @@ initial begin
 			$time, n1, rxq[n0 + n1], rx_n - n0);
 		errors = errors + 1;
 	end
+	sel = 3'd0;
+
+	// ---- nanomig: DSKCHG request / answer (CMD_FDD_CHNG 49) ----
+	sel = 3'd3;
+	flush;
+	@(negedge clk); chng_ds = 2'd1; chng_req = 1'b1; @(negedge clk); chng_req = 1'b0;
+	expect_reply(24'h49_01_00);
+	expect_no_reply;
+	// a request waiting next to a file mounter word: the request first, then the word, each once
+	acks = 0;
+	@(negedge clk); chng_ds = 2'd2; chng_req = 1'b1;
+	@(negedge clk); chng_req = 1'b0; img_q_di = 24'h43_00_01; img_q_wr = 1'b1;
+	while (acks == 0) @(negedge clk);
+	img_q_wr = 1'b0;
+	expect_reply(24'h49_02_00);
+	expect_reply(24'h43_00_01);
+	expect_no_reply;
+	if (acks != 1) fail("file mounter word acked more than once next to a DSKCHG request");
+	// the answer of the mcu
+	frame(8'h49, 8'h01, 8'h01);
+	frame(8'h49, 8'h02, 8'h00);
+	repeat (4) @(negedge clk);
+	if (chng_n != 2 || chng_last !== 16'h0200) fail("DSKCHG answers");
+	if (ts_chng_n != 0) fail("DSKCHG answer without ENABLE_IMG");
 	sel = 3'd0;
 
 	// ---- menu: the ESP uart bridge ----
