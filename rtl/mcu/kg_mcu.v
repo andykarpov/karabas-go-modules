@@ -154,6 +154,8 @@ module kg_mcu #(
 	// hw setup
 	output wire [7:0] HWID,
 	output wire DVI_ONLY,
+	output wire [63:0] CORE_BUILD, // build ids (HW_SETUP 10..1F), ASCII, character 0 in bits 63..56; 0 = not sent
+	output wire [63:0] FW_BUILD,
 
 	// file mounter
 	output wire [7:0] IMG_MOUNTED,
@@ -245,6 +247,7 @@ assign SD2_CS_N = ENABLE_SD2 ? MCU_SPI_SD2_SS : 1'b1;
 kg_mcu_ctl u_ctl(
 	.clk(CLK), .rx_stb(rx_stb), .rx_cmd(rx_cmd), .rx_addr(rx_addr), .rx_data(rx_data),
 	.softsw_command(SOFTSW_COMMAND), .osd_command(OSD_COMMAND), .hwid(HWID), .dvi_only(DVI_ONLY),
+	.core_build(CORE_BUILD), .fw_build(FW_BUILD),
 	.btns(BTNS), .ft_spi_on(FT_SPI_ON), .ft_vga_on(FT_VGA_ON), .ft_reset(FT_RESET), .busy(BUSY)
 );
 

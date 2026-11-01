@@ -60,11 +60,12 @@ reg [4:0] fb_coreid = 5'd0;
 wire ts_ms_upd, ts_kb_upd, ts_xt_upd, ts_ft_spi, ts_ft_vga, ts_ft_reset, ts_busy;
 wire [7:0] ts_kb_sc, ts_xt_sc;
 wire [15:0] ts_softsw;
+wire [63:0] ts_core_build, ts_fw_build;
 kg_mcu #(.CS_FILTER(3), .RTC_SKIP_0D(0), .RTC_SEND_LIMIT('hF0), .ENABLE_DEBUG(1), .ENABLE_IMG(0),
 	.ENABLE_FILE(0), .ENABLE_SD2(0)) ts(`INPUTS(0),
 	.MS_UPD(ts_ms_upd), .KB_SCANCODE(ts_kb_sc), .KB_SCANCODE_UPD(ts_kb_upd), .XT_SCANCODE(ts_xt_sc),
 	.XT_SCANCODE_UPD(ts_xt_upd), .FT_SPI_ON(ts_ft_spi), .FT_VGA_ON(ts_ft_vga), .FT_RESET(ts_ft_reset),
-	.SOFTSW_COMMAND(ts_softsw), .BUSY(ts_busy));
+	.SOFTSW_COMMAND(ts_softsw), .BUSY(ts_busy), .CORE_BUILD(ts_core_build), .FW_BUILD(ts_fw_build));
 
 // rk86 / spec256 (no chip select filter: the spike test shows what it is for)
 wire rk_reset, rk_active, rk_wr, rk_romwr;
@@ -298,6 +299,15 @@ initial begin
 	if ({ ts_ft_spi, ts_ft_vga, ts_ft_reset } !== 3'b111) fail("CONTROL 13");
 	frame(8'h09, 8'h00, 8'h00);
 	if ({ ts_ft_spi, ts_ft_vga, ts_ft_reset } !== 3'b000) fail("CONTROL 00");
+
+	// ---- HW_SETUP 10..1F: build ids of the core and the firmware, character 0 in the top byte ----
+	if (ts_core_build !== 64'd0 || ts_fw_build !== 64'd0) fail("build ids not 0 before HW_SETUP 10..1F");
+	for (i = 0; i < 8; i = i + 1) begin
+		frame(8'hF9, 8'h10 + i, "26110102" >> (8 * (7 - i)));
+		frame(8'hF9, 8'h18 + i, i < 6 ? "DEVBLD" >> (8 * (5 - i)) : 8'h00);
+	end
+	if (ts_core_build !== "26110102") fail("CORE_BUILD");
+	if (ts_fw_build !== { "DEVBLD", 16'h0000 }) fail("FW_BUILD (0 padded)");
 
 	// ---- tsconf: uart modes and divisor ----
 	flush;
