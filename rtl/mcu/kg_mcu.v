@@ -35,6 +35,7 @@ module kg_mcu #(
 	parameter ENABLE_DEBUG = 0,
 	parameter ENABLE_IMG = 0,
 	parameter ENABLE_BK = 0,        // caps bit 3: the core has kg_bk_ram on the file mounter (needs ENABLE_IMG)
+	parameter ENABLE_FDD_CHNG = 0,  // DSKCHG requests of a physical floppy (CMD_FDD_CHNG, Go hotfix; needs ENABLE_IMG)
 	parameter ENABLE_FILE = 1,      // file loader (ioctl / file commands), see kg_mcu_loader
 	parameter FILE_CMDS = 0,
 	parameter FILE_WR_EACH = 1,
@@ -174,6 +175,16 @@ module kg_mcu #(
 	output wire IMG_PHYS_WR,
 	output wire [15:0] IMG_PHYS,
 	output wire [7:0] IMG_FLUSH,    // CMD_IMG_FLUSH of the mcu for slot n, one clock (kg_bk_ram)
+	// DSKCHG of a physical floppy (ENABLE_FDD_CHNG): a clock of FDD_CHNG_REQ asks the mcu for the
+	// level of the drive FDD_CHNG_DS (1 DS0, 2 DS1) that the core selects; the answer is
+	// FDD_CHNG = { drive, value } with FDD_CHNG_WR one clock (value 1 changed / no disk, 0 disk
+	// in, 2 the board has no DSKCHG line). Old firmware does not answer.
+	/* verilator lint_off UNUSEDSIGNAL */
+	input wire FDD_CHNG_REQ,
+	input wire [1:0] FDD_CHNG_DS,
+	/* verilator lint_on UNUSEDSIGNAL */
+	output wire FDD_CHNG_WR,
+	output wire [15:0] FDD_CHNG,
 
 	// esp8266 uart bridge: a byte to the esp (one clock), a byte from it (held until the ack)
 	output wire [7:0] ESP_UART_TX_DATA,
@@ -341,6 +352,8 @@ endgenerate
 // file mounter: port 7
 generate
 	if (ENABLE_IMG) begin : kg_mcu_img_on
+		wire fdd_chng_wr;
+		wire [15:0] fdd_chng;
 		kg_mcu_img u_img(
 			.clk(CLK), .rx_stb(rx_stb), .rx_cmd(rx_cmd), .rx_addr(rx_addr), .rx_data(rx_data),
 			.bst_wr(bst_wr), .bst_type(bst_type), .bst_addr(bst_addr), .bst_data(bst_data),
@@ -348,8 +361,12 @@ generate
 			.img_data_addr(IMG_DATA_ADDR), .img_data(IMG_DATA), .img_result_wr(IMG_RESULT_WR),
 			.img_result(IMG_RESULT), .img_sum(IMG_SUM), .img_phys_wr(IMG_PHYS_WR), .img_phys(IMG_PHYS), .img_flush(IMG_FLUSH),
 			.img_q_wr(IMG_Q_WR), .img_q_di(IMG_Q_DI), .img_q_ack(IMG_Q_ACK),
+			.fdd_chng_req(ENABLE_FDD_CHNG ? FDD_CHNG_REQ : 1'b0), .fdd_chng_ds(ENABLE_FDD_CHNG ? FDD_CHNG_DS : 2'd0),
+			.fdd_chng_wr(fdd_chng_wr), .fdd_chng(fdd_chng),
 			.tx_req(tx_req[7]), .tx_data(tx_data[7*24 +: 24]), .tx_grant(tx_grant[7]), .tx_full(tx_full)
 		);
+		assign FDD_CHNG_WR = ENABLE_FDD_CHNG ? fdd_chng_wr : 1'b0;
+		assign FDD_CHNG = ENABLE_FDD_CHNG ? fdd_chng : 16'd0;
 	end
 	else begin : kg_mcu_img_off
 		assign IMG_MOUNTED = 8'd0;
@@ -364,6 +381,8 @@ generate
 		assign IMG_PHYS_WR = 1'b0;
 		assign IMG_PHYS = 16'd0;
 		assign IMG_FLUSH = 8'd0;
+		assign FDD_CHNG_WR = 1'b0;
+		assign FDD_CHNG = 16'd0;
 		assign tx_req[7] = 1'b0;
 		assign tx_data[7*24 +: 24] = 24'd0;
 	end

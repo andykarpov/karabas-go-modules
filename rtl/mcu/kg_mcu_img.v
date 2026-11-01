@@ -16,9 +16,15 @@
    IMG_BUF_DATA a d   (or a burst of that type) a byte of the sector read: img_data_wr one
                       clock with img_data_addr, img_data
    IMG_FLUSH s 00     img_flush[s] one clock: write the dirty sectors of slot s now (kg_bk_ram)
+   FDD_CHNG d v       the answer to a DSKCHG request: fdd_chng = d v, fdd_chng_wr one clock
+                      (d = 1 DS0 / 2 DS1, v = 1 changed or no disk, 0 disk in, 2 no line)
  Frames to the mcu (requests, write data): img_q_di held with img_q_wr until img_q_ack (one
  clock); a word goes out when the queue has room and not in the clock after an ack (the sender
  is putting up its next word then).
+ DSKCHG request (Karabas Go with the pin 34 hotfix, karabas-go-firmware docs/protocol.md): a
+ clock of fdd_chng_req sends FDD_CHNG fdd_chng_ds 00 (the core has selected that drive and
+ holds it until the answer). It goes before a waiting img_q word; a request while one waits
+ replaces its drive.
 */
 
 module kg_mcu_img (
@@ -45,6 +51,10 @@ module kg_mcu_img (
 	output reg img_phys_wr = 1'b0,
 	output reg [15:0] img_phys = 16'd0,
 	output reg [7:0] img_flush = 8'd0,
+	output reg fdd_chng_wr = 1'b0,
+	output reg [15:0] fdd_chng = 16'd0,
+	input wire fdd_chng_req,
+	input wire [1:0] fdd_chng_ds,
 
 	input wire img_q_wr,
 	input wire [23:0] img_q_di,
@@ -63,6 +73,10 @@ reg bank = 1'b0;
 // one register per byte: see kg_mcu_hid
 reg [7:0] size0 = 8'd0, size1 = 8'd0, size2 = 8'd0, size3 = 8'd0, size4 = 8'd0, size5 = 8'd0, size6 = 8'd0;
 reg [7:0] sum_lo = 8'd0, sum_hi = 8'd0;
+reg chng_pend = 1'b0;
+reg [1:0] chng_ds = 2'd0;
+// the DSKCHG request goes first: it is rare, and the drive stays selected until the answer
+wire chng_sel = chng_pend;
 assign img_sum = { sum_hi, sum_lo };
 
 integer i;
@@ -72,6 +86,7 @@ always @(posedge clk) begin
 	img_data_wr <= 1'b0;
 	img_result_wr <= 1'b0;
 	img_flush <= 8'd0;
+	fdd_chng_wr <= 1'b0;
 	if (rx_stb)
 		case (rx_cmd)
 			CMD_IMG_SLOT: slot <= rx_data[2:0];
@@ -106,6 +121,10 @@ always @(posedge clk) begin
 				img_result <= rx_data;
 				img_result_wr <= 1'b1;
 			end
+			CMD_FDD_CHNG: begin
+				fdd_chng <= { rx_addr, rx_data };
+				fdd_chng_wr <= 1'b1;
+			end
 			CMD_IMG_BUF_BANK: bank <= rx_data[0];
 			CMD_IMG_FLUSH:
 				if (rx_data == 8'h00)
@@ -125,10 +144,16 @@ always @(posedge clk) begin
 		img_data_wr <= 1'b1;
 	end
 
-	img_q_ack <= tx_grant;
+	img_q_ack <= tx_grant && !chng_sel;
+	if (tx_grant && chng_sel)
+		chng_pend <= 1'b0;
+	if (fdd_chng_req) begin
+		chng_pend <= 1'b1;
+		chng_ds <= fdd_chng_ds;
+	end
 end
 
-assign tx_req = img_q_wr && !img_q_ack && !tx_full;
-assign tx_data = img_q_di;
+assign tx_req = (chng_pend || (img_q_wr && !img_q_ack)) && !tx_full;
+assign tx_data = chng_sel ? { CMD_FDD_CHNG, 6'd0, chng_ds, 8'h00 } : img_q_di;
 
 endmodule
