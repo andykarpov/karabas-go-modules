@@ -18,6 +18,10 @@
    IMG_FLUSH s 00     img_flush[s] one clock: write the dirty sectors of slot s now (kg_bk_ram)
    FDD_CHNG d v       the answer to a DSKCHG request: fdd_chng = d v, fdd_chng_wr one clock
                       (d = 1 DS0 / 2 DS1, v = 1 changed or no disk, 0 disk in, 2 no line)
+   IMG_FLAGS s f      img_wp[s] = f bit 0: the image of slot s is write protected (the mcu sends
+                      it after the size, to cores with caps bit 5; IMG_SIZE byte 7 clears it, so
+                      an image is writable until its flags say otherwise). A write to it is
+                      answered IMG_SEC s 03.
  Frames to the mcu (requests, write data): img_q_di held with img_q_wr until img_q_ack (one
  clock); a word goes out when the queue has room and not in the clock after an ack (the sender
  is putting up its next word then).
@@ -51,6 +55,7 @@ module kg_mcu_img (
 	output reg img_phys_wr = 1'b0,
 	output reg [15:0] img_phys = 16'd0,
 	output reg [7:0] img_flush = 8'd0,
+	output wire [7:0] img_wp,
 	output reg fdd_chng_wr = 1'b0,
 	output reg [15:0] fdd_chng = 16'd0,
 	input wire fdd_chng_req,
@@ -74,6 +79,14 @@ reg bank = 1'b0;
 reg [7:0] size0 = 8'd0, size1 = 8'd0, size2 = 8'd0, size3 = 8'd0, size4 = 8'd0, size5 = 8'd0, size6 = 8'd0;
 reg [7:0] sum_lo = 8'd0, sum_hi = 8'd0;
 reg chng_pend = 1'b0;
+// one register per slot: see kg_mcu_hid
+reg wp0 = 1'b0, wp1 = 1'b0, wp2 = 1'b0, wp3 = 1'b0, wp4 = 1'b0, wp5 = 1'b0, wp6 = 1'b0, wp7 = 1'b0;
+assign img_wp = { wp7, wp6, wp5, wp4, wp3, wp2, wp1, wp0 };
+// the slot of a flags frame, or of the size byte 7 that clears its flags
+wire wp_set = rx_stb && rx_cmd == CMD_IMG_FLAGS;
+wire wp_clr = rx_stb && rx_cmd == CMD_IMG_SIZE && rx_addr == 8'h07;
+wire [2:0] wp_slot = wp_set ? rx_addr[2:0] : slot;
+wire wp_val = wp_set && rx_data[0];
 reg [1:0] chng_ds = 2'd0;
 // the DSKCHG request goes first: it is rare, and the drive stays selected until the answer
 wire chng_sel = chng_pend;
@@ -143,6 +156,18 @@ always @(posedge clk) begin
 		img_data <= bst_data;
 		img_data_wr <= 1'b1;
 	end
+
+	if (wp_set || wp_clr)
+		case (wp_slot)
+			3'd0: wp0 <= wp_val;
+			3'd1: wp1 <= wp_val;
+			3'd2: wp2 <= wp_val;
+			3'd3: wp3 <= wp_val;
+			3'd4: wp4 <= wp_val;
+			3'd5: wp5 <= wp_val;
+			3'd6: wp6 <= wp_val;
+			default: wp7 <= wp_val;
+		endcase
 
 	img_q_ack <= tx_grant && !chng_sel;
 	if (tx_grant && chng_sel)

@@ -101,7 +101,9 @@ reg [7:0] sdc_rd = 8'd0, sdc_wr = 8'd0;
 reg [31:0] sdc_sector = 32'd0;
 wire [7:0] sdc_img_mounted, sdc_byte_in_data;
 wire [63:0] sdc_img_size;
-wire sdc_busy, sdc_done, sdc_byte_in_strobe;
+wire sdc_busy, sdc_done, sdc_byte_in_strobe, sdc_error;
+reg done_err = 1'b0;     // sdc_error at the last sdc_done
+reg [7:0] wr_result = 8'h01; // the answer of the mcu model to a write
 wire [8:0] sdc_byte_addr;
 reg [7:0] out_d1 = 8'd0, out_d2 = 8'd0; // the floppy: data 2 clocks after the address
 
@@ -113,7 +115,7 @@ img_sdc img_sdc(
 	.img_q_wr(img_q_wr), .img_q_di(img_q_di), .img_q_ack(img_q_ack),
 	.sdc_img_mounted(sdc_img_mounted), .sdc_img_size(sdc_img_size),
 	.sdc_rd(sdc_rd), .sdc_wr(sdc_wr), .sdc_sector(sdc_sector),
-	.sdc_busy(sdc_busy), .sdc_done(sdc_done),
+	.sdc_busy(sdc_busy), .sdc_done(sdc_done), .sdc_error(sdc_error),
 	.sdc_byte_in_strobe(sdc_byte_in_strobe), .sdc_byte_addr(sdc_byte_addr),
 	.sdc_byte_in_data(sdc_byte_in_data), .sdc_byte_out_data(out_d2),
 	.active()
@@ -145,8 +147,10 @@ always @(posedge clk) begin
 	end
 	if (sdc_img_mounted != 0)
 		$display("%t mounted %b size %0d", $time, sdc_img_mounted, sdc_img_size);
-	if (sdc_done)
+	if (sdc_done) begin
 		$display("%t sdc_done", $time);
+		done_err <= sdc_error;
+	end
 end
 
 task request(input wr, input [31:0] sector);
@@ -270,7 +274,7 @@ task serve;
 				$display("ERROR: write data %0d bytes, sum %04x, core sum %04x", wr_count, sum, wsum_rx);
 				errors = errors + 1;
 			end
-			frame(8'h43, req_slot, 8'h01);
+			frame(8'h43, req_slot, wr_result);
 		end
 		// the firmware keeps polling for the next request
 		n = 0;
@@ -380,6 +384,17 @@ initial begin
 			if (errors < 10) $display("ERROR: write byte %0d %02x", i, wr_buf[i]);
 			errors = errors + 1;
 		end
+
+	if (done_err) begin $display("ERROR: sdc_error after a good write"); errors = errors + 1; end
+
+	// a write to a write protected image: the answer 3 ends it at once with sdc_error, no retry
+	wr_result = 8'h03;
+	fork request(1, 32'd9); serve; join
+	wr_result = 8'h01;
+	// it ends within clocks of the answer (a retry would wait for TIMEOUT and send it again)
+	for (i = 0; i < 100 && sdc_busy; i = i + 1) @(posedge clk);
+	if (sdc_busy) begin $display("ERROR: a write protected write did not end at the answer"); errors = errors + 1; end
+	else if (!done_err) begin $display("ERROR: no sdc_error after a write protected write"); errors = errors + 1; end
 
 	$display("tb_img: %0d errors", errors);
 	$finish;
