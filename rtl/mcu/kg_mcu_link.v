@@ -21,7 +21,7 @@
  the queue cannot take a word (a source that must not lose one waits for it).
  CMD_CAPS 00 is answered here, before all ports: bursts (bit 0), MCU_BURST_READY driven (bit 1),
  the backup RAM commands CMD_BK_MOUNT / CMD_IMG_FLUSH (bit 3, CAPS_BK: kg_bk_ram), MIDI IN (bit 4,
- CAPS_MIDI: kg_mcu_midi), and the highest
+ CAPS_MIDI: kg_mcu_midi), write protected images (bit 5, CAPS_IMG_WP: IMG_WP of kg_mcu), and the highest
  burst sck BURST_MAX_MHZ (0 = the normal link clock).
 
  The fixes of karabas-go-core-nanomig (its CLAUDE.md has the cases found on hardware):
@@ -38,6 +38,7 @@ module kg_mcu_link #(
 	parameter CS_FILTER = 3,
 	parameter CAPS_BK = 0,          // caps bit 3: the core has kg_bk_ram (CMD_BK_MOUNT, CMD_IMG_FLUSH)
 	parameter CAPS_MIDI = 0,        // caps bit 4: the core takes CMD_MIDI (kg_mcu_midi)
+	parameter CAPS_IMG_WP = 0,      // caps bit 5: write protected images (CMD_IMG_FLAGS, IMG_SEC result 3)
 	parameter TX_PORTS = 1
 ) (
 	input wire clk,
@@ -144,7 +145,7 @@ always @(posedge clk) begin
 end
 
 // CMD_CAPS 00: answered before all ports
-localparam [7:0] CAPS = 8'h03 | (CAPS_BK ? 8'h08 : 8'h00) | (CAPS_MIDI ? 8'h10 : 8'h00);
+localparam [7:0] CAPS = 8'h03 | (CAPS_BK ? 8'h08 : 8'h00) | (CAPS_MIDI ? 8'h10 : 8'h00) | (CAPS_IMG_WP ? 8'h20 : 8'h00);
 localparam [7:0] CAPS_MAX_MHZ = BURST_MAX_MHZ;
 reg caps_pend = 1'b0;
 wire caps_q = rx_stb && rx_cmd == CMD_CAPS && rx_addr == 8'h00;

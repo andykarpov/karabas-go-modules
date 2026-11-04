@@ -31,7 +31,8 @@
    (RETRIES times) when it fails: a read needs all 512 bytes and the 16-bit sum the mcu sends
    before its result (IMG_LBA 0/1, mcu -> fpga); a write sends the sum of its bytes after them
    (IMG_BUF_BANK 10/11) and the mcu answers an error if it got less or a different sum. A read
-   that still fails gives the requester 512 zero bytes, so it does not wait forever.
+   that still fails gives the requester 512 zero bytes, so it does not wait forever. A write to a
+   write protected image is answered 3 (cores with caps bit 5): it ends at once with sdc_error.
 */
 
 module img_sdc #(
@@ -305,7 +306,9 @@ always @(posedge clk) begin
 			end
 
 		S_WAIT:
-			if ((img_result_wr && img_result == 8'd1) || ((img_result_wr || timeout == 24'd1) && tries == RETRIES)) begin
+			// 3: the image is write protected (karabas-go-firmware, cores with caps bit 5): no retry
+			if ((img_result_wr && (img_result == 8'd1 || img_result == 8'd3)) ||
+			    ((img_result_wr || timeout == 24'd1) && tries == RETRIES)) begin
 				sdc_busy <= 1'b0;
 				sdc_done <= 1'b1;
 				sdc_error <= !(img_result_wr && img_result == 8'd1);

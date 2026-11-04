@@ -36,6 +36,7 @@ module kg_mcu #(
 	parameter ENABLE_IMG = 0,
 	parameter ENABLE_BK = 0,        // caps bit 3: the core has kg_bk_ram on the file mounter (needs ENABLE_IMG)
 	parameter ENABLE_FDD_CHNG = 0,  // DSKCHG requests of a physical floppy (CMD_FDD_CHNG, Go hotfix; needs ENABLE_IMG)
+	parameter ENABLE_IMG_WP = 0,    // caps bit 5: write protected images, IMG_WP (CMD_IMG_FLAGS; needs ENABLE_IMG)
 	parameter ENABLE_FILE = 1,      // file loader (ioctl / file commands), see kg_mcu_loader
 	parameter FILE_CMDS = 0,
 	parameter FILE_WR_EACH = 1,
@@ -175,6 +176,10 @@ module kg_mcu #(
 	output wire IMG_PHYS_WR,
 	output wire [15:0] IMG_PHYS,
 	output wire [7:0] IMG_FLUSH,    // CMD_IMG_FLUSH of the mcu for slot n, one clock (kg_bk_ram)
+	// ENABLE_IMG_WP: bit n = the image of slot n is write protected (from its mount on; a write
+	// to it is answered IMG_RESULT 3). 0 without ENABLE_IMG_WP (the firmware then answers 1 and
+	// drops the data of a write to a protected image).
+	output wire [7:0] IMG_WP,
 	// DSKCHG of a physical floppy (ENABLE_FDD_CHNG): a clock of FDD_CHNG_REQ asks the mcu for the
 	// level of the drive FDD_CHNG_DS (1 DS0, 2 DS1) that the core selects; the answer is
 	// FDD_CHNG = { drive, value } with FDD_CHNG_WR one clock (value 1 changed / no disk, 0 disk
@@ -233,7 +238,7 @@ wire [7:0] rx_cmd, rx_addr, rx_data, bst_type, bst_data;
 wire [31:0] bst_addr;
 wire spi_miso, spi_sel;
 
-kg_mcu_link #(.BURST_MAX_MHZ(BURST_MAX_MHZ), .CS_FILTER(CS_FILTER), .CAPS_BK(ENABLE_BK), .CAPS_MIDI(ENABLE_MIDI), .TX_PORTS(P)) u_link(
+kg_mcu_link #(.BURST_MAX_MHZ(BURST_MAX_MHZ), .CS_FILTER(CS_FILTER), .CAPS_BK(ENABLE_BK), .CAPS_MIDI(ENABLE_MIDI), .CAPS_IMG_WP(ENABLE_IMG && ENABLE_IMG_WP), .TX_PORTS(P)) u_link(
 	.clk(CLK), .reset(~N_RESET),
 	.sck(MCU_SCK), .mosi(MCU_MOSI), .miso(spi_miso), .miso_en(spi_sel),
 	.cs_n(MCU_SS), .burst_cs_n(MCU_BURST_CS_N), .burst_ready(MCU_BURST_READY),
@@ -354,12 +359,14 @@ generate
 	if (ENABLE_IMG) begin : kg_mcu_img_on
 		wire fdd_chng_wr;
 		wire [15:0] fdd_chng;
+		wire [7:0] img_wp;
 		kg_mcu_img u_img(
 			.clk(CLK), .rx_stb(rx_stb), .rx_cmd(rx_cmd), .rx_addr(rx_addr), .rx_data(rx_data),
 			.bst_wr(bst_wr), .bst_type(bst_type), .bst_addr(bst_addr), .bst_data(bst_data),
 			.img_mounted(IMG_MOUNTED), .img_size(IMG_SIZE), .img_data_wr(IMG_DATA_WR),
 			.img_data_addr(IMG_DATA_ADDR), .img_data(IMG_DATA), .img_result_wr(IMG_RESULT_WR),
 			.img_result(IMG_RESULT), .img_sum(IMG_SUM), .img_phys_wr(IMG_PHYS_WR), .img_phys(IMG_PHYS), .img_flush(IMG_FLUSH),
+			.img_wp(img_wp),
 			.img_q_wr(IMG_Q_WR), .img_q_di(IMG_Q_DI), .img_q_ack(IMG_Q_ACK),
 			.fdd_chng_req(ENABLE_FDD_CHNG ? FDD_CHNG_REQ : 1'b0), .fdd_chng_ds(ENABLE_FDD_CHNG ? FDD_CHNG_DS : 2'd0),
 			.fdd_chng_wr(fdd_chng_wr), .fdd_chng(fdd_chng),
@@ -367,6 +374,7 @@ generate
 		);
 		assign FDD_CHNG_WR = ENABLE_FDD_CHNG ? fdd_chng_wr : 1'b0;
 		assign FDD_CHNG = ENABLE_FDD_CHNG ? fdd_chng : 16'd0;
+		assign IMG_WP = ENABLE_IMG_WP ? img_wp : 8'd0;
 	end
 	else begin : kg_mcu_img_off
 		assign IMG_MOUNTED = 8'd0;
@@ -381,6 +389,7 @@ generate
 		assign IMG_PHYS_WR = 1'b0;
 		assign IMG_PHYS = 16'd0;
 		assign IMG_FLUSH = 8'd0;
+		assign IMG_WP = 8'd0;
 		assign FDD_CHNG_WR = 1'b0;
 		assign FDD_CHNG = 16'd0;
 		assign tx_req[7] = 1'b0;

@@ -90,8 +90,9 @@ wire nm_ack, nm_chng_wr;
 wire [15:0] nm_chng;
 reg chng_req = 1'b0;
 reg [1:0] chng_ds = 2'd0;
-kg_mcu #(.BURST_MAX_MHZ(32), .ENABLE_IMG(1), .ENABLE_FDD_CHNG(1)) nm(`INPUTS(3), .IMG_Q_ACK(nm_ack),
-	.FDD_CHNG_REQ(chng_req), .FDD_CHNG_DS(chng_ds), .FDD_CHNG_WR(nm_chng_wr), .FDD_CHNG(nm_chng));
+wire [7:0] nm_wp;
+kg_mcu #(.BURST_MAX_MHZ(32), .ENABLE_IMG(1), .ENABLE_FDD_CHNG(1), .ENABLE_IMG_WP(1)) nm(`INPUTS(3), .IMG_Q_ACK(nm_ack),
+	.FDD_CHNG_REQ(chng_req), .FDD_CHNG_DS(chng_ds), .FDD_CHNG_WR(nm_chng_wr), .FDD_CHNG(nm_chng), .IMG_WP(nm_wp));
 // the same requests on the tsconf instance (no ENABLE_IMG) and an IMG one without ENABLE_FDD_CHNG
 wire ts_chng_wr = ts.FDD_CHNG_WR;
 integer chng_n = 0, ts_chng_n = 0;
@@ -449,6 +450,24 @@ initial begin
 	repeat (4) @(negedge clk);
 	if (chng_n != 2 || chng_last !== 16'h0200) fail("DSKCHG answers");
 	if (ts_chng_n != 0) fail("DSKCHG answer without ENABLE_IMG");
+
+	// ---- nanomig: write protected images (CMD_IMG_FLAGS 4A, caps bit 5) ----
+	flush;
+	frame(8'hF7, 8'h00, 8'h01);
+	expect_reply(24'hF7_23_20);                         // caps: bursts + ready + write protect, 32 MHz
+	frame(8'h40, 8'h00, 8'h02);                         // slot 2: an image
+	for (i = 0; i < 8; i = i + 1) frame(8'h41, i[7:0], (i == 1) ? 8'h10 : 8'h00);
+	if (nm_wp !== 8'h00) fail("write protect before the flags");
+	frame(8'h4A, 8'h02, 8'h01);
+	frame(8'h4A, 8'h05, 8'h01);
+	if (nm_wp !== 8'h24) fail("write protect of slots 2 and 5");
+	frame(8'h40, 8'h00, 8'h02);                         // slot 2 mounted again: writable until its flags
+	for (i = 0; i < 8; i = i + 1) frame(8'h41, i[7:0], 8'h00);
+	if (nm_wp !== 8'h20) fail("write protect not cleared by the size of slot 2");
+	frame(8'h4A, 8'h05, 8'h00);
+	if (nm_wp !== 8'h00) fail("write protect of slot 5 not cleared by its flags");
+	expect_no_reply;
+	if (ts.IMG_WP !== 8'h00) fail("IMG_WP without ENABLE_IMG");
 	sel = 3'd0;
 
 	// ---- menu: the ESP uart bridge ----
