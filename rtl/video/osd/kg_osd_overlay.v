@@ -16,7 +16,7 @@
 
  The position follows the syncs: the counters start at the leading edge of hsync / vsync (high
  active), their length picks the scale (lines under 500 clocks: a counter step per clock, under
- H_DIV4_WIDTH: per 2, else per 4; frames under 400 / 800 lines likewise), H_OFFSET / V_OFFSET
+ H_DIV4_WIDTH: per 2, else per 4; frames under 400 / V_DIV4_HEIGHT lines likewise), H_OFFSET / V_OFFSET
  are in those steps. Popup: the characters twice as large. With the OSD on, the video under it is
  dimmed to 5 bits per colour. ALWAYS_ON: the OSD is on also with overlay and popup off (the boot
  menu, whose screen is the OSD; its DEFAULT). V_OFFSET_IN: the vertical offset is the input
@@ -36,6 +36,7 @@ module kg_osd_overlay #(
 	parameter H_OFFSET = 120, // tsconf: 120 / 72
 	parameter V_OFFSET = 72,
 	parameter H_DIV4_WIDTH = 1000, // lines of this many clocks or more: a step per 4 (menu: 1200, 800 x 600)
+	parameter V_DIV4_HEIGHT = 800, // frames of this many lines or more: a step per 4 (bk, 1024 x 768: 900)
 	parameter ALWAYS_ON = 0,
 	parameter V_OFFSET_IN = 0,
 	parameter H_OFFSET_IN = 0
@@ -79,7 +80,7 @@ always @(posedge clk) begin
 end
 
 wire [10:0] hcnt = ((width < 500) ? hcnt_i : (width < H_DIV4_WIDTH) ? { 1'b0, hcnt_i[10:1] } : { 2'b00, hcnt_i[10:2] }) - (H_OFFSET_IN ? h_offset : H_OFFSET);
-wire [10:0] vcnt = ((height < 400) ? vcnt_i : (height < 800) ? { 1'b0, vcnt_i[10:1] } : { 2'b00, vcnt_i[10:2] }) - (V_OFFSET_IN ? v_offset : V_OFFSET);
+wire [10:0] vcnt = ((height < 400) ? vcnt_i : (height < V_DIV4_HEIGHT) ? { 1'b0, vcnt_i[10:1] } : { 2'b00, vcnt_i[10:2] }) - (V_OFFSET_IN ? v_offset : V_OFFSET);
 
 // ---------------- commands ----------------
 
