@@ -2,7 +2,8 @@
 # kg_mcu with Icarus Verilog (also in the CI): tb_kg_mcu.v (what mcu.vhd of nanomig does not
 # have: tsconf features, the file loaders of rk86 / alf, the chip select filter, a full queue),
 # tb_mcu.v / tb_img.v of run_mcu_sim.sh with kg_mcu in place of mcu.vhd, and tb_bk.v (kg_bk_ram, the
-# backup RAM on the file mounter), tb_printer.v (kg_mcu_printer). Each prints
+# backup RAM on the file mounter), tb_printer.v (kg_mcu_printer), tb_hdf_ata.v (the ATA disc on the
+# sector side of img_sdc). Each prints
 # "0 errors"; tb_eq_mcu (sim/eq) compares kg_mcu with mcu.vhd clock by clock.
 set -e
 cd "$(dirname "$0")"
@@ -17,3 +18,8 @@ for tb in tb_kg_mcu tb_mcu tb_img tb_bk tb_printer; do
 	grep -E "ERROR|$tb:" $tb.log | sed "s/^/kg_mcu: /"
 	grep -q "$tb: 0 errors" $tb.log
 done
+iverilog -g2001 -Wall -Wno-timescale -o tb_hdf_ata.vvp "$M/sim/mcu/tb_hdf_ata.v" "$M/rtl/mcu/hdf_ata.v" \
+	2>&1 | grep -v -e 'warning: Port' -e 'Padding' -e 'tb_hdf_ata.v:.*: *:' || true
+vvp -n tb_hdf_ata.vvp > tb_hdf_ata.log
+grep -E "ERROR|tb_hdf_ata:" tb_hdf_ata.log | sed "s/^/hdf_ata: /"
+grep -q "tb_hdf_ata: 0 errors" tb_hdf_ata.log
