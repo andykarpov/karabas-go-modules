@@ -75,6 +75,7 @@ reg [15:0] fctl; // {M, D}
 always @(*) begin
 	case (hdmi_freq)
 		8'd24: fctl = {8'd3, 8'd1};
+		8'd28: fctl = {8'd7, 8'd2}; // kg_freq_counter tells 28 too (the FT812 at 28 MHz, or no clock with REF_MHZ 28)
 		8'd32: fctl = {8'd4, 8'd1};
 		8'd40: fctl = {8'd5, 8'd1};
 		8'd48: fctl = {8'd6, 8'd1};
