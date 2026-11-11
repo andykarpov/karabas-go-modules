@@ -43,8 +43,14 @@ architecture rtl of island_encoder is
 	-- Data island packet
 	type data_packet_t is array (0 to 30) of std_logic_vector(7 downto 0);
 	-- packet double buffer
-	type data_packet_buffer_t is array (0 to 1) of data_packet_t;
-	signal packet_buffer : data_packet_buffer_t;
+	-- karabas: the two packets: the bits are read at nine places with indexes that change every clock; as a
+	-- RAM (XST splits an array of the two into two RAMs, an attribute on the array does not reach them)
+	-- XST made LUTRAM copies (504 LUTs) and 900 LUTs of bit muxes. In flip-flops the reads are muxes
+	-- (the packet is still written while it goes out, as before)
+	signal packet_buffer0, packet_buffer1 : data_packet_t;
+	attribute ram_extract : string;
+	attribute ram_extract of packet_buffer0 : signal is "no";
+	attribute ram_extract of packet_buffer1 : signal is "no";
 	-- read packet index
 
 	signal packet_rd_buf_idx : integer range 0 to 1;
@@ -105,7 +111,11 @@ begin
 		else
 			if dvalid = '1' and buffer_full = '0' then
 				-- dready is set (combinatorial)
-				packet_buffer(packet_rd_buf_idx)(packet_rd_idx) <= data;
+				if packet_rd_buf_idx = 0 then
+					packet_buffer0(packet_rd_idx) <= data;
+				else
+					packet_buffer1(packet_rd_idx) <= data;
+				end if;
 				if packet_rd_idx < 30 then
 					packet_rd_idx <= packet_rd_idx + 1;
 				else
@@ -157,7 +167,11 @@ begin
 					island_st <= pack;
 				end if;
 			when pack =>
-				pck := packet_buffer(packet_wr_buf_idx);
+				if packet_wr_buf_idx = 0 then
+					pck := packet_buffer0;
+				else
+					pck := packet_buffer1;
+				end if;
 				bid := 7 - to_integer(ifcnt(2 downto 0));
 				if ifcnt >= 8 then
 					idx := 3 - to_integer(ifcnt(4 downto 3));

@@ -3,7 +3,8 @@
 # - tb_pll_reset: pll_reset holds a long request (it fell for one clock in nine);
 # - tb_eq_freq_counter: kg_freq_counter against freq_counter.vhd of tsconf and of menu (ref/);
 # - tb_hdmi_ft_pll: kg_hdmi_ft_pll against hdmi_pll.v of tsconf (ref/), and the programming of
-#   DCM_CLKGEN on a model of it (xilinx_models.v).
+#   DCM_CLKGEN on a model of it (xilinx_models.v);
+# - tb_eq_island_encoder: the island encoder of zhdmi against its original (ref/), behavioural ghdl.
 # Each prints "<tb>: 0 errors".
 set -e
 cd "$(dirname "$0")"
@@ -38,3 +39,13 @@ $IV -o tb_hdmi_ft_pll.vvp "$M/sim/hdmi/tb_hdmi_ft_pll.v" "$M/sim/hdmi/xilinx_mod
 	"$M/rtl/video/hdmi/kg_hdmi_ft_pll.v"
 vvp -n tb_hdmi_ft_pll.vvp > tb_hdmi_ft_pll.log
 result tb_hdmi_ft_pll
+
+# the island encoder: behavioural ghdl (the original renamed island_encoder_ref)
+sed -e 's/entity island_encoder is/entity island_encoder_ref is/' -e 's/end island_encoder;/end island_encoder_ref;/' \
+	-e 's/architecture rtl of island_encoder is/architecture rtl of island_encoder_ref is/' \
+	"$M/sim/hdmi/ref/zhdmi_island_encoder.vhd" > island_encoder_ref.vhd
+ghdl -a --std=93c --workdir=. island_encoder_ref.vhd "$M/rtl/video/hdmi/zhdmi_island_encoder.vhd" \
+	"$M/sim/hdmi/tb_eq_island_encoder.vhd"
+ghdl -e --std=93c --workdir=. tb_eq_island_encoder
+ghdl -r --std=93c --workdir=. tb_eq_island_encoder > tb_eq_island_encoder.log 2>&1
+result tb_eq_island_encoder
