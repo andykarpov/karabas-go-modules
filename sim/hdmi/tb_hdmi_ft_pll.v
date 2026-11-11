@@ -34,12 +34,18 @@ kg_hdmi_ft_pll #(.REF_HZ(28000000), .REF_MHZ(8'd28)) new_dut(.clk(ft_clk), .clk_
 	.clk_8(clk_8), .reset(reset), .ft_sel(ft_sel), .clk_hdmi(), .clk_hdmi_n(), .clk_pix(), .clk_pix2(),
 	.freq(new_freq), .locked(new_locked), .o_reset(new_rst));
 
+// at 28 MHz (the FT mode, and the return to the core with REF_MHZ 28) the old one had no M / D (it programmed
+// 80 MHz): a sequence loaded for 28 is not compared (its M / D are checked by the phases)
+reg seq28 = 1'b0;
+always @(posedge clk_ref) if (new_dut.hdmi_reset) seq28 <= new_dut.hdmi_freq == 8'd28;
 always @(negedge clk_ref) if (!reset) begin
 	eq_check("freq", old_freq, new_freq);
-	eq_check("o_reset", old_rst, new_rst);
-	eq_check("locked", old_locked, new_locked);
-	eq_check("PROGDATA", old_dut.prog_data[0], new_dut.prog_data[0]);
-	eq_check("PROGEN", old_dut.prog_en[0], new_dut.prog_en[0]);
+	if (!seq28) begin
+		eq_check("o_reset", old_rst, new_rst);
+		eq_check("locked", old_locked, new_locked);
+		eq_check("PROGDATA", old_dut.prog_data[0], new_dut.prog_data[0]);
+		eq_check("PROGEN", old_dut.prog_en[0], new_dut.prog_en[0]);
+	end
 end
 
 // the reset of the 5x DCM held while DCM_CLKGEN is unlocked in the FT mode (a clock later)
@@ -55,7 +61,7 @@ end
 
 integer phase_errors = 0, p0 = 0;
 task phase(input [8*20-1:0] name, input sel, input real mhz, input integer ms,
-		input integer min_progs, input integer max_progs, input [7:0] m); // m 0: M / D not checked
+		input integer min_progs, input integer max_progs, input [7:0] m, input [7:0] d); // m 0: M / D not checked
 	integer n;
 	begin
 		half = 500.0 / mhz;
@@ -66,9 +72,9 @@ task phase(input [8*20-1:0] name, input sel, input real mhz, input integer ms,
 		$display("%t %0s: %0d programmings, M %0d D %0d, freq %0d, locked %b", $time, name, n,
 			new_dut.dcm_clkgen_inst.m_val + 1, new_dut.dcm_clkgen_inst.d_val + 1, new_freq, new_locked);
 		if (n < min_progs || n > max_progs || (n > 0 && m != 0 && (new_dut.dcm_clkgen_inst.m_val != m - 1 ||
-				new_dut.dcm_clkgen_inst.d_val != 0)) || !new_locked) begin
-			$display("%t ERROR: %0s: expected %0d..%0d programmings with M %0d, locked", $time, name,
-				min_progs, max_progs, m);
+				new_dut.dcm_clkgen_inst.d_val != d - 1)) || !new_locked) begin
+			$display("%t ERROR: %0s: expected %0d..%0d programmings with M %0d D %0d, locked", $time, name,
+				min_progs, max_progs, m, d);
 			phase_errors = phase_errors + 1;
 		end
 	end
@@ -76,16 +82,18 @@ endtask
 
 initial begin
 	#1000 reset = 1'b0;
-	phase("core", 0, 40.0, 2, 0, 0, 0);
-	phase("FT 40", 1, 40.0, 3, 1, 1, 5);
-	phase("FT 24 (change)", 1, 24.0, 4, 1, 2, 3);
-	phase("core", 0, 24.0, 2, 1, 1, 0);
-	phase("FT 24 again", 1, 24.0, 3, 1, 1, 3);
-	phase("core", 0, 80.0, 2, 1, 1, 0);
-	phase("FT 80", 1, 80.0, 3, 1, 1, 10);
-	phase("FT 64 (change)", 1, 64.0, 4, 1, 2, 8);
-	phase("core", 0, 72.0, 2, 1, 1, 0);
-	phase("FT 72", 1, 72.0, 3, 1, 1, 9);
+	phase("core", 0, 40.0, 2, 0, 0, 0, 1);
+	phase("FT 40", 1, 40.0, 3, 1, 1, 5, 1);
+	phase("FT 24 (change)", 1, 24.0, 4, 1, 2, 3, 1);
+	phase("core", 0, 24.0, 2, 1, 1, 0, 1);
+	phase("FT 24 again", 1, 24.0, 3, 1, 1, 3, 1);
+	phase("core", 0, 80.0, 2, 1, 1, 0, 1);
+	phase("FT 80", 1, 80.0, 3, 1, 1, 10, 1);
+	phase("FT 64 (change)", 1, 64.0, 4, 1, 2, 8, 1);
+	phase("core", 0, 72.0, 2, 1, 1, 0, 1);
+	phase("FT 72", 1, 72.0, 3, 1, 1, 9, 1);
+	phase("FT 28 (change)", 1, 28.0, 4, 1, 2, 7, 2);
+	phase("core", 0, 28.0, 2, 1, 1, 0, 1);
 	errors = errors + phase_errors + rst_gaps + new_dut.dcm_clkgen_inst.bad_seq + old_dut.dcm_clkgen_inst.bad_seq;
 	$display("tb_hdmi_ft_pll: bad sequences %0d / old %0d, reset gaps %0d, %0d checks",
 		new_dut.dcm_clkgen_inst.bad_seq, old_dut.dcm_clkgen_inst.bad_seq, rst_gaps, checks);
