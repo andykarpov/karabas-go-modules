@@ -22,8 +22,10 @@
  - the bus has no IORDY, so a data block has to be in the buffer before DRQ: one sector per block
    (IDENTIFY word 47 = 1). READ / WRITE MULTIPLE work with SET MULTIPLE 0 or 1;
  - commands: IDENTIFY, READ SECTORS, READ MULTIPLE, WRITE SECTORS, WRITE MULTIPLE, READ VERIFY,
-   INITIALIZE DEVICE PARAMETERS (the CHS translation), SET MULTIPLE, the non-data commands that
-   need no action (recalibrate, seek, power, flush, set features, diagnostics); others abort.
+   INITIALIZE DEVICE PARAMETERS (the CHS translation), SET MULTIPLE, FORMAT TRACK (its block of the
+   sector table is taken and dropped: the sectors of an image are there already; the IDEFS of the
+   Archimedes formats a disc with it), the non-data commands that need no action (recalibrate,
+   seek, power, flush, set features, diagnostics); others abort.
    CHS and LBA28 addressing;
  - the geometry: at mount the RDB in sector 0 (cylinders, sectors, heads as NanoMig takes them)
    if it fits CHS (heads 1-16, sectors 1-255, cylinders < 65536), else 16 heads, 63 sectors and
@@ -223,6 +225,7 @@ wire [31:0] cap = (s_total[31:28] != 4'd0) ? 32'h0FFFFFFF : s_total;
 //---------- Commands ------------
 
 reg  [1:0]  op = OP_READ;
+reg         fmt = 1'b0;       // FORMAT TRACK: the block of ST_DRQOUT is not stored
 reg  [8:0]  left = 9'd0;      // sectors of the command, this one included
 reg  [31:0] lba = 32'd0;
 reg  [20:0] chs_t = 21'd0;
@@ -571,7 +574,11 @@ always @(posedge clk) begin
 				wa <= ptr;
 				wd <= din;
 				ptr <= ptr + 8'd1;
-				if (ptr == 8'd255) begin
+				if (ptr == 8'd255 && fmt) begin
+					set_st(ST_OK);
+					state <= ST_IDLE;
+				end
+				else if (ptr == 8'd255) begin
 					sdc_sector <= lba;
 					sdc_wr <= sel ? 2'b10 : 2'b01;
 					sdc_wait <= 1'b1;
@@ -609,6 +616,7 @@ always @(posedge clk) begin
 	if (cmd_start) begin
 		set_err(8'h00);
 		left <= (r_count == 8'd0) ? 9'd256 : { 1'b0, r_count };
+		fmt <= 1'b0;
 		casez (din[7:0])
 			8'hEC: begin // IDENTIFY DEVICE
 				op <= OP_IDENT;
@@ -630,6 +638,13 @@ always @(posedge clk) begin
 				op <= OP_VERIFY;
 				set_st(ST_BSY);
 				state <= ST_CALC1;
+			end
+			8'h50: begin // FORMAT TRACK: the sector table, then done
+				op <= OP_WRITE;
+				fmt <= 1'b1;
+				ptr <= 8'd0;
+				set_st(ST_DRQ);
+				state <= ST_DRQOUT;
 			end
 			8'h91: begin // INITIALIZE DEVICE PARAMETERS
 				cur_spt[sel] <= r_count;
