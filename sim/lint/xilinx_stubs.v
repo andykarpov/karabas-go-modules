@@ -175,7 +175,8 @@ endmodule
 // rtl/video/hdmi/zhdmi_tx.vhd
 module hdmi_tx #(
 	parameter SAMPLE_FREQ = 32000,
-	parameter [3:0] INVERTED_TX = 4'b0000
+	parameter [3:0] INVERTED_TX = 4'b0000,
+	parameter INPUT_REG = 0
 ) (
 	input wire clk,
 	input wire sclk,

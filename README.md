@@ -12,8 +12,14 @@ The cores include this repository as a git submodule in `modules/` and list the 
 | `rtl/hid` | `kg_cursor` (absolute mouse position for the Kempston mouse) |
 | `rtl/clk` | `kg_pll` (PLL_BASE), `kg_dcm` (DCM_SP): the coregen clocking wizard cores with the same parameters |
 | `rtl/audio` | `pcm5102.v` / `kg_pcm5102` (I2S DAC), `dac.vhd` / `kg_sigma_delta_dac`, `audio_peaks.v` (level meters of the MCU), `kg_midi_tx` (MIDI out, 31250 baud) |
-| `rtl/video/hdmi` | `zhdmi_top.v` and the zhdmi HDMI transmitter, `hdmi_pll.v`, `dvi*.vhd` |
+| `rtl/video/hdmi` | `zhdmi_top.v` and the zhdmi HDMI transmitter (`hdmi_tx`, generic `INPUT_REG`: see below), `hdmi_pll.v`, `dvi*.vhd` |
 | `rtl/video/osd` | `overlay.vhd` / `kg_osd_overlay` (OSD menus of the MCU), `pix_doubler.vhd` / `kg_pix_doubler` |
+
+`hdmi_tx` (`zhdmi_tx.vhd`, also the `INPUT_REG` parameter of `zhdmi_top.v`): with `INPUT_REG = 1` it registers `rgb`, `vsync`, `hsync` and `de` on its pixel clock before the TMDS encoders. All four get the same clock of latency, so the alignment of the core stays as it is. The output of `kg_osd_overlay` (`rgb_o`) is combinational: fed straight into `hdmi_tx`, the overlay mux and the encoder share one pixel clock, which fails when the slices are nearly full (core-sega on Mini: -2.7 ns at 65 MHz). Set it in a core that misses the pixel clock on that path; the default 0 keeps the old behaviour:
+
+```verilog
+hdmi_tx #(.SAMPLE_FREQ(48000), .INPUT_REG(1)) hdmi (.clk(clk_pix), .rgb(osd_rgb), ...);
+```
 
 `tools/coe2hex.py` converts a coregen `.coe` into the `$readmemh` file of the `INIT_FILE` parameters.
 
