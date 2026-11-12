@@ -14,7 +14,7 @@
  - The OSD is centred; a popup window (osd_pw != 0) shows only its part of the bitmap, at the
    centre, the top or the bottom of the area, with zoom twice as large when that fits.
  - Text pixels are osd_fg, the rest of the OSD and a border of 2 OSD pixels are osd_bg blended
-   over the video by osd_alpha (0 none .. 3 three quarters); a shadow of 4 OSD pixels to the
+   over the video by osd_alpha (0 none, 1 a half, 2 three quarters, 3 opaque); a shadow of 4 OSD pixels to the
    right and below darkens the video.
  - Latency: 2 clocks; hs_o / vs_o / de_o come with rgb_o. The settings are taken at the start
    of a frame (the multi-bit values cross from the link clock while they are stable).
@@ -228,12 +228,10 @@ function [7:0] blend(input [7:0] o, input [7:0] v, input [1:0] a);
 	reg [9:0] t; // the low 2 bits drop: a sum of 4 weights
 	begin
 		case (a)
-			2'd0: t = { 2'b00, v };
-			2'd1: t = { 2'b00, o } + { 1'b0, v, 1'b0 } + { 2'b00, v };      // o + 3v
-			2'd2: t = { 1'b0, o, 1'b0 } + { 1'b0, v, 1'b0 };                 // 2o + 2v
+			2'd1: t = { 1'b0, o, 1'b0 } + { 1'b0, v, 1'b0 };                 // 2o + 2v
 			default: t = { 1'b0, o, 1'b0 } + { 2'b00, o } + { 2'b00, v };    // 3o + v
 		endcase
-		blend = (a == 2'd0) ? v : t[9:2];
+		blend = (a == 2'd0) ? v : (a == 2'd3) ? o : t[9:2];
 	end
 endfunction
 /* verilator lint_on UNUSEDSIGNAL */

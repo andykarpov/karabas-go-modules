@@ -11,7 +11,7 @@
    01 ENABLE  bit 0 show
    02 WRITE   tile (2 bytes, LE), data bytes: the bitmap from byte tile x 8 on (wrapping at 4 KB);
               osd_wr one clock per byte with osd_waddr / osd_wdata
-   03 COLORS  fg R G B, bg R G B, bg alpha (0..3)
+   03 COLORS  fg R G B, bg R G B, bg alpha (0 none, 1 1/2, 2 3/4, 3 opaque)
    04 POPUP   x, y, w, h (tiles of 8 x 8), place (0 centre, 1 top, 2 bottom), zoom (0 / 1):
               only this part is shown; w = 0 ends the popup
 

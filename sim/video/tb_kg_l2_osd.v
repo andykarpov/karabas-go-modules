@@ -6,7 +6,7 @@
  The bitmap OSD of link v2: the mcu writes the bitmap, the colours, ENABLE and a POPUP through
  kg_mcu2 (target 02), kg_l2_osd_overlay draws it over an 800 x 600 picture. Checked on the
  screen: the video without OSD, the scale (2 at 800 x 600) and the centre, text and background
- pixels (alpha 2), the border, the shadow, the last pixel of the bitmap, a popup at the top with
+ pixels (alpha 1 = a half; 3 = opaque), the border, the shadow, the last pixel of the bitmap, a popup at the top with
  zoom (scale 4). Prints "tb_kg_l2_osd: 0 errors".
 */
 
@@ -153,8 +153,8 @@ initial begin
 	for (i = 0; i < 8; i = i + 1) tx[4 + i] = (i == 7) ? 8'h80 : 8'h00;
 	packet(12);
 	tx[0] = 8'h02; tx[1] = 8'h02; tx[2] = 8'd34; tx[3] = 8'h00; tx[4] = 8'h01; packet(5); // tile 32 + 2 = page 1, column 16
-	// colours: fg red, bg blue, alpha 2
-	tx[0] = 8'h02; tx[1] = 8'h03; tx[2] = 8'hFF; tx[3] = 0; tx[4] = 0; tx[5] = 0; tx[6] = 0; tx[7] = 8'hFF; tx[8] = 2;
+	// colours: fg red, bg blue, alpha 1 (a half)
+	tx[0] = 8'h02; tx[1] = 8'h03; tx[2] = 8'hFF; tx[3] = 0; tx[4] = 0; tx[5] = 0; tx[6] = 0; tx[7] = 8'hFF; tx[8] = 1;
 	packet(9);
 	tx[0] = 8'h02; tx[1] = 8'h01; tx[2] = 8'h01; packet(3);
 
@@ -177,6 +177,12 @@ initial begin
 	check("popup pixel 4x4", scr[35 * 800 + 339], 24'hFF0000);
 	check("popup bg", scr[32 * 800 + 340], mix2(24'h0000FF, v_at(340, 32)));
 	check("not the old place", scr[172 * 800 + 144], v_at(144, 172));
+
+	// alpha 3: the background is opaque
+	tx[0] = 8'h02; tx[1] = 8'h03; tx[2] = 8'hFF; tx[3] = 0; tx[4] = 0; tx[5] = 0; tx[6] = 0; tx[7] = 8'hFF; tx[8] = 3;
+	packet(9);
+	frames(2);
+	check("opaque bg", scr[32 * 800 + 340], 24'h0000FF);
 
 	// the popup ends, the OSD goes off
 	tx[0] = 8'h02; tx[1] = 8'h04; tx[2] = 0; tx[3] = 0; tx[4] = 0; tx[5] = 0; tx[6] = 0; tx[7] = 0; packet(8);
