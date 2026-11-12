@@ -12,7 +12,7 @@ branch `link-v2`): use its `src/rtl/karabas_minig_top.v` as the example.
   into `link-v2`. `link-v2` goes into master only when all cores are moved. A core that has no
   `link-v2` branch yet: `git push origin origin/master:refs/heads/link-v2`.
 - **What exists.** Phases of `docs/link_v2.md` section 10. Ф2 (done): transport, SYS, HID,
-  LOAD. Not yet: OSD (Ф3), IMG (Ф4: file mounter, `.sav`, floppy drives), PORT / RTC / AUX (Ф5:
+  LOAD; Ф3: OSD (`kg_l2_osd`); Ф4: IMG, the file mounter (`kg_l2_img`; `.sav` backup RAM not yet). Not yet: PORT / RTC / AUX (Ф5:
   UART, ESP, MIDI, printer, clock, LED matrix). A core that needs one of the missing targets
   waits for its phase, or moves without the feature for now (vic20 runs without its disk and OSD
   in Ф2). Do not invent commands: a new command goes into the spec first, then here and into the
@@ -29,7 +29,8 @@ branch `link-v2`): use its `src/rtl/karabas_minig_top.v` as the example.
    submodule commit in the core's `link-v2` branch).
 2. **prj.** Remove `ctl/kg_soft_switches.v`, `mcu/kg_spi_slave.v`, `mcu/kg_burst_rx.v`,
    `mcu/kg_mcu_link.v`, `mcu/kg_mcu_*.v`, `mcu/kg_mcu.v`; add `mcu/kg_l2_link.v`,
-   `mcu/kg_l2_sys.v`, `mcu/kg_l2_hid.v`, `mcu/kg_l2_load.v`, `mcu/kg_mcu2.v`.
+   `mcu/kg_l2_sys.v`, `mcu/kg_l2_hid.v`, `mcu/kg_l2_load.v`, `mcu/kg_mcu2.v` (+ `mcu/kg_l2_osd.v`,
+   `video/osd/kg_l2_osd_overlay.v`, `mcu/kg_l2_img.v` for the OSD and the file mounter).
 3. **Pins.** `MCU_INT` goes out on the IO1 line: `MCU_IO[1]` on Mini / Mini G, `MCU_SPI_IO[0]`
    on Go (the index is swapped there). It is the pin of the burst ready of v1, so the ucf does
    not change for burst cores; `MCU_IO[0]` (the old burst chip select) is an input (`1'bz`).
@@ -53,7 +54,8 @@ branch `link-v2`): use its `src/rtl/karabas_minig_top.v` as the example.
    | `ROMLOADER_ACTIVE`, `ROMLOAD_ADDR/DATA/WR` | `LD_*` with `LD_KIND == 0` | `rom_active = LD_ACTIVE && kind 0`, `rom_wr = LD_WR && kind 0`, addr / data = `LD_ADDR` / `LD_DATA` |
    | `FILELOAD_RESET/ACTIVE/ADDR/DATA/WR/SLOT/SIZE` (file loader or ioctl) | `LD_*` with `LD_KIND == 1` (file loader) or `2` (FL items) | `file_reset = LD_START && kind`, `file_active = LD_ACTIVE && kind`, `file_wr = LD_WR && kind`, `LD_SLOT`, `LD_SIZE`; `FILE_TO_ROM` / `FILE_WR_EACH` become the core's own choice (`LD_WR` is one clock per byte) |
    | `MCU_BURST_READY` (a slow memory) | `LD_READY` + `CAPS` bit 4 | drive `LD_READY` low while the core cannot take 512 bytes |
-   | `IMG_*`, `img_sdc` link side, `kg_bk_ram`, `FDD_CHNG*` | Ф4 | until then: tie the `img_sdc` link inputs to 0 (no image) |
+   | `IMG_*` + `img_sdc` (file mounter) | `ENABLE_IMG(1)`, `IMG_OUT_LATENCY` (= `OUT_LATENCY` of `img_sdc`): `SDC_*` (the `sdc_*` side of `img_sdc`, the same ports), `IMG_WP`, `IMG_PHYS*`, `IMG_FLUSH`, `FDD_CHNG*` (`FDD_CHNG_REQ` / `_DS` in), `IMG_ACTIVE`; `CAPS` bit 0 (bit 2: write protected images) | drop `img_sdc`: its `sdc_*` nets go to `kg_mcu2` as they are; prj adds `mcu/kg_l2_img.v` |
+   | `kg_bk_ram` (`.sav`), `hdf_ata` | not yet: they sit on the v1 `img_*` bus | wait (a `kg_bk_ram` on `SDC_*` comes with the first core that needs it) |
    | `OSD_COMMAND` + `kg_osd_overlay` | Ф3 (`kg_l2_osd`) | until then: `osd_command = 0` (no overlay) |
    | `RTC_*`, `UART_*`, `ESP_*`, `MIDI_*`, `PRN_*`, `MATRIX_CMD`, `DEBUG_*` | Ф5 | until then: off |
 
