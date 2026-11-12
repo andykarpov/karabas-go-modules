@@ -23,6 +23,8 @@
    bytes (PS2_KIND 0 set 2, 1 XT with bit 7 release) with PS2_WR; the mouse (MS_X / MS_Y / MS_Z
    signed deltas, MS_B buttons) with MS_WR; JOY_L / JOY_R with JOY_WR; PS2_CMD (command,
    argument) with PS2_CMD_WR to the mcu (keyboard LEDs, scancode set).
+ - OSD (ENABLE_OSD): OSD_* of kg_l2_osd to kg_l2_osd_overlay (the bitmap and the drawing, in the
+   video clock); STATUS reports 256 x 128 then.
  - LOAD: LD_* of kg_l2_load (ROMs, file loader, FL items on one bus), LD_READY from the core.
 
  Parameters: CAPS (STATUS caps, docs/link_v2.md 5.1; bit 4 = the core drives LD_READY, bit 9 =
@@ -35,6 +37,7 @@ module kg_mcu2 #(
 	parameter SW_N = 16,
 	parameter [SW_N*8-1:0] SW_INIT = 0,
 	parameter CS_FILTER = 3,
+	parameter ENABLE_OSD = 1,     // the bitmap OSD (target 02): OSD_* to kg_l2_osd_overlay
 	parameter ENABLE_FT = 1,
 	parameter ENABLE_SD2 = 1
 ) (
@@ -92,6 +95,21 @@ module kg_mcu2 #(
 	output wire LD_WR,
 	input wire LD_READY,
 
+	// osd (ENABLE_OSD): to kg_l2_osd_overlay in the video clock
+	output wire OSD_WR,
+	output wire [11:0] OSD_WADDR,
+	output wire [7:0] OSD_WDATA,
+	output wire OSD_EN,
+	output wire [23:0] OSD_FG,
+	output wire [23:0] OSD_BG,
+	output wire [1:0] OSD_ALPHA,
+	output wire [4:0] OSD_PX,
+	output wire [3:0] OSD_PY,
+	output wire [5:0] OSD_PW,
+	output wire [4:0] OSD_PH,
+	output wire [1:0] OSD_PLACE,
+	output wire OSD_ZOOM,
+
 	// ft812, sd2
 	output wire FT_SPI_ON,
 	output wire FT_VGA_ON,
@@ -123,7 +141,7 @@ kg_l2_link #(.CS_FILTER(CS_FILTER)) u_link(
 	.clk(CLK),
 	.sck(MCU_SCK), .mosi(MCU_MOSI), .miso(spi_miso), .miso_en(spi_sel), .cs_n(MCU_SS),
 	.stb(stb), .start(start), .tgt(tgt), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m),
-	.q(tgt == 8'h00 ? q_sys : tgt == 8'h01 ? q_hid : tgt == 8'h04 ? q_load : 8'h00),
+	.q(tgt == 8'h00 ? q_sys : tgt == 8'h01 ? q_hid : tgt == 8'h04 ? q_load : 8'h00), // OSD answers nothing
 	.irq(irq), .int_out(MCU_INT)
 );
 
@@ -156,7 +174,7 @@ endgenerate
 wire irq_sys, irq_hid;
 assign irq = { 6'd0, irq_hid, irq_sys };
 
-kg_l2_sys #(.CAPS(CAPS)) u_sys(
+kg_l2_sys #(.CAPS(CAPS), .OSD_W8(ENABLE_OSD ? 8'd32 : 8'd0), .OSD_H8(ENABLE_OSD ? 8'd16 : 8'd0)) u_sys(
 	.clk(CLK), .reset(~N_RESET),
 	.sel(tgt == 8'h00), .stb(stb), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m), .q(q_sys),
 	.pending(irq), .irq(irq_sys),
@@ -175,6 +193,34 @@ kg_l2_hid u_hid(
 	.joy_l(JOY_L), .joy_r(JOY_R), .joy_wr(JOY_WR),
 	.cmd_data(PS2_CMD), .cmd_wr(PS2_CMD_WR)
 );
+
+generate
+	if (ENABLE_OSD) begin : kg_mcu2_osd_on
+		kg_l2_osd u_osd(
+			.clk(CLK),
+			.sel(tgt == 8'h02), .stb(stb), .cmd(cmd), .n(n), .d(d),
+			.osd_wr(OSD_WR), .osd_waddr(OSD_WADDR), .osd_wdata(OSD_WDATA), .osd_en(OSD_EN),
+			.osd_fg(OSD_FG), .osd_bg(OSD_BG), .osd_alpha(OSD_ALPHA),
+			.osd_px(OSD_PX), .osd_py(OSD_PY), .osd_pw(OSD_PW), .osd_ph(OSD_PH),
+			.osd_place(OSD_PLACE), .osd_zoom(OSD_ZOOM)
+		);
+	end
+	else begin : kg_mcu2_osd_off
+		assign OSD_WR = 1'b0;
+		assign OSD_WADDR = 12'd0;
+		assign OSD_WDATA = 8'd0;
+		assign OSD_EN = 1'b0;
+		assign OSD_FG = 24'd0;
+		assign OSD_BG = 24'd0;
+		assign OSD_ALPHA = 2'd0;
+		assign OSD_PX = 5'd0;
+		assign OSD_PY = 4'd0;
+		assign OSD_PW = 6'd0;
+		assign OSD_PH = 5'd0;
+		assign OSD_PLACE = 2'd0;
+		assign OSD_ZOOM = 1'b0;
+	end
+endgenerate
 
 kg_l2_load u_load(
 	.clk(CLK),
