@@ -11,12 +11,12 @@ branch `link-v2`): use its `src/rtl/karabas_minig_top.v` as the example.
   modules, tools, every core), never into master: work on a feature branch from `link-v2`, PR
   into `link-v2`. `link-v2` goes into master only when all cores are moved. A core that has no
   `link-v2` branch yet: `git push origin origin/master:refs/heads/link-v2`.
-- **What exists.** Phases of `docs/link_v2.md` section 10. Ф2 (done): transport, SYS, HID,
-  LOAD; Ф3: OSD (`kg_l2_osd`); Ф4: IMG, the file mounter (`kg_l2_img`; `.sav` backup RAM not yet); Ф5: PORT (`kg_l2_port`), RTC (`kg_l2_rtc`), AUX (`kg_l2_aux`). All targets of the spec are in; `.sav` (`kg_bk_ram`) and
-  `hdf_ata` still sit on v1: a core that needs them waits, or moves without them for now (as vic20
-  ran without its disk and OSD
-in Ф2). Do not invent commands: a new command goes into the spec first, then here and into the
-  firmware.
+- **What exists.** Phases of `docs/link_v2.md` section 10. Ф2: transport, SYS, HID, LOAD; Ф3:
+  OSD (`kg_l2_osd`); Ф4: IMG, the file mounter (`kg_l2_img`); Ф5: PORT (`kg_l2_port`), RTC
+  (`kg_l2_rtc`), AUX (`kg_l2_aux`). All targets of the spec are in; `.sav` (`kg_bk_ram`) and
+  `hdf_ata` still sit on v1: a core that needs them waits, or moves without them for now (as
+  vic20 ran without its disk and OSD in Ф2). Do not invent commands: a new command goes into the
+  spec first, then here and into the firmware.
 - **Firmware.** The board needs a firmware of the firmware `link-v2` branch (it speaks both
   links; v1 cores work on it unchanged). Released firmware does not load a link 2 core at all
   (its bitstream is in section `BITSTREAM_LINK2`).
