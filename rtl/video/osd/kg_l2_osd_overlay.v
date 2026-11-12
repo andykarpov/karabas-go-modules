@@ -16,12 +16,22 @@
  - Text pixels are osd_fg, the rest of the OSD and a border of 2 OSD pixels are osd_bg blended
    over the video by osd_alpha (0 none, 1 a half, 2 three quarters, 3 opaque); a shadow of 4 OSD pixels to the
    right and below darkens the video.
+ - Activity icons (ICONS_N of them, 0..8): a row of 16 x 16 pictures in a corner of the area
+   (ICON_CORNER), at the scale of the OSD, under it. Icon n has the picture ICON_SET[n*4 +: 4]
+   (0 floppy, 1 SD card, 2 CF card, 3 hard disk, 4 tape), is shown dim on a darkened box while
+   icon_on[n] (mounted) and bright while it is active: icon_act[n] (wclk, a pulse is enough) is
+   held 2^STRETCH_BITS clocks of wclk and then ICON_HOLD frames.
  - Latency: 2 clocks; hs_o / vs_o / de_o come with rgb_o. The settings are taken at the start
    of a frame (the multi-bit values cross from the link clock while they are stable).
 */
 
 module kg_l2_osd_overlay #(
-	parameter SCALE = 0   // 0 = from the size of the area
+	parameter SCALE = 0,                    // 0 = from the size of the area
+	parameter ICONS_N = 0,                  // the activity icons (0..8)
+	parameter [31:0] ICON_SET = 32'h76543210, // the picture of icon n in bits n*4 +: 4
+	parameter ICON_CORNER = 0,              // 0 top right, 1 top left, 2 bottom right, 3 bottom left
+	parameter STRETCH_BITS = 18,            // activity held 2^n clocks of wclk (2^18 at 28 MHz: 9 ms)
+	parameter ICON_HOLD = 6                 // then this many frames
 ) (
 	// the link side (kg_mcu2 OSD_*)
 	input wire wclk,
@@ -38,6 +48,10 @@ module kg_l2_osd_overlay #(
 	input wire [4:0] osd_ph,
 	input wire [1:0] osd_place,
 	input wire osd_zoom,
+	/* verilator lint_off UNUSEDSIGNAL */ // the icons past ICONS_N
+	input wire [7:0] icon_on,     // wclk: the icon is shown (dim)
+	input wire [7:0] icon_act,    // wclk: activity (bright)
+	/* verilator lint_on UNUSEDSIGNAL */
 
 	// the video
 	input wire clk,
@@ -128,12 +142,14 @@ wire [3:0] s_auto = (SCALE != 0) ? SCALE[3:0] :
 	(aw >= 12'd512 && ah >= 12'd256) ? 4'd2 : 4'd1;
 wire [8:0] ww_n = popup_now ? { pw_v, 3'b000 } : 9'd256;
 wire [8:0] wh_n = popup_now ? { 1'b0, ph_v, 3'b000 } : 9'd128;
-wire [12:0] W2 = ww_n * { s_auto, 1'b0 };
-wire [12:0] H2 = wh_n * { s_auto, 1'b0 };
+wire [12:0] W1 = ww_n * s_auto;
+wire [12:0] H1 = wh_n * s_auto;
+wire [12:0] W2 = { W1[11:0], 1'b0 };
+wire [12:0] H2 = { H1[11:0], 1'b0 };
 wire zoom_fits = popup_now && zoom_v && W2 <= { 1'b0, aw } && H2 <= { 1'b0, ah };
 wire [3:0] s_n = zoom_fits ? { s_auto[2:0], 1'b0 } : s_auto;
-wire [12:0] W_n = ww_n * s_n;
-wire [12:0] H_n = wh_n * s_n;
+wire [12:0] W_n = zoom_fits ? W2 : W1;
+wire [12:0] H_n = zoom_fits ? H2 : H1;
 wire signed [13:0] margin = $signed({ 7'd0, s_n, 3'b000 }); // 8 OSD pixels from the top / bottom
 
 always @(posedge clk)
@@ -153,21 +169,37 @@ always @(posedge clk)
 		alpha <= alpha_v;
 	end
 
+// the far edges of the border and of the shadow, a clock after the start of the frame
+reg frame_start_d = 1'b0;
+reg signed [13:0] Wb = 14'sd0, W3 = 14'sd0, Hb = 14'sd0, H3 = 14'sd0;
+always @(posedge clk) begin
+	frame_start_d <= frame_start;
+	if (frame_start_d) begin
+		Wb <= $signed({ 1'b0, W }) + $signed({ 9'd0, s, 1'b0 });
+		W3 <= $signed({ 1'b0, W }) + $signed({ 9'd0, s, 1'b0 }) + $signed({ 8'd0, s, 2'b00 });
+		Hb <= $signed({ 1'b0, H }) + $signed({ 9'd0, s, 1'b0 });
+		H3 <= $signed({ 1'b0, H }) + $signed({ 9'd0, s, 1'b0 }) + $signed({ 8'd0, s, 2'b00 });
+	end
+end
+
 // ---------------- the OSD pixel of the screen pixel ----------------
 
 wire signed [13:0] xs = $signed({ 2'b00, x });
 wire signed [13:0] ys = $signed({ 2'b00, y });
 wire signed [13:0] Ws = $signed({ 1'b0, W });
 wire signed [13:0] Hs = $signed({ 1'b0, H });
-wire signed [13:0] b = $signed({ 9'd0, s, 1'b0 });   // the border: 2 OSD pixels
-wire signed [13:0] sh = $signed({ 8'd0, s, 2'b00 }); // the shadow: 4
+wire signed [13:0] b = $signed({ 9'd0, s, 1'b0 });   // the border: 2 OSD pixels (the shadow: 4 more)
 
-wire in_x = xs >= x0 && xs < x0 + Ws;
-wire in_y = ys >= y0 && ys < y0 + Hs;
-wire bd_x = xs >= x0 - b && xs < x0 + Ws + b;
-wire bd_y = ys >= y0 - b && ys < y0 + Hs + b;
-wire sh_x = xs >= x0 - b + sh && xs < x0 + Ws + b + sh;
-wire sh_y = ys >= y0 - b + sh && ys < y0 + Hs + b + sh;
+// the pixel from the corner of the window: one subtractor per axis, the edges are constants of
+// the frame (the border from -b to W + b, the shadow from b to W + 3b)
+wire signed [13:0] ux = xs - x0;
+wire signed [13:0] uy = ys - y0;
+wire in_x = !ux[13] && ux < Ws;
+wire in_y = !uy[13] && uy < Hs;
+wire bd_x = ux >= -b && ux < Wb;
+wire bd_y = uy >= -b && uy < Hb;
+wire sh_x = ux >= b && ux < W3;
+wire sh_y = uy >= b && uy < H3;
 
 // the column / line of the bitmap: counters that step once per s screen pixels / lines
 reg [3:0] hsub = 4'd0, vsub = 4'd0;
@@ -222,15 +254,213 @@ always @(posedge clk) begin
 	de1 <= de_i;
 end
 
+// ---------------- the activity icons ----------------
+
+// the pictures: row y of icon i at i * 16 + y (bit 15 = the left pixel): 0 floppy, 1 SD, 2 CF,
+// 3 hard disk, 4 tape; a ROM read a clock before its pixel
+reg [15:0] icon_rom [0:127];
+integer ri;
+initial begin
+	for (ri = 0; ri < 128; ri = ri + 1) icon_rom[ri] = 16'h0000;
+	icon_rom[0] = 16'h0000;
+	icon_rom[1] = 16'hFFF8;
+	icon_rom[2] = 16'hF01C;
+	icon_rom[3] = 16'hF05E;
+	icon_rom[4] = 16'hF05E;
+	icon_rom[5] = 16'hF01E;
+	icon_rom[6] = 16'hFFFE;
+	icon_rom[7] = 16'hFFFE;
+	icon_rom[8] = 16'hFFFE;
+	icon_rom[9] = 16'hFFFE;
+	icon_rom[10] = 16'hE00E;
+	icon_rom[11] = 16'hEFEE;
+	icon_rom[12] = 16'hE00E;
+	icon_rom[13] = 16'hEFEE;
+	icon_rom[14] = 16'hE00E;
+	icon_rom[15] = 16'hFFFE;
+	icon_rom[16] = 16'h0000;
+	icon_rom[17] = 16'h1FFE;
+	icon_rom[18] = 16'h3926;
+	icon_rom[19] = 16'h6926;
+	icon_rom[20] = 16'hC926;
+	icon_rom[21] = 16'hCFFE;
+	icon_rom[22] = 16'hFFFE;
+	icon_rom[23] = 16'hC10E;
+	icon_rom[24] = 16'hCF36;
+	icon_rom[25] = 16'hC136;
+	icon_rom[26] = 16'hF936;
+	icon_rom[27] = 16'hC10E;
+	icon_rom[28] = 16'hFFFE;
+	icon_rom[29] = 16'hC006;
+	icon_rom[30] = 16'hFFFE;
+	icon_rom[31] = 16'hFFFE;
+	icon_rom[32] = 16'h0000;
+	icon_rom[33] = 16'h7FFC;
+	icon_rom[34] = 16'hFFFE;
+	icon_rom[35] = 16'hC106;
+	icon_rom[36] = 16'hCF3E;
+	icon_rom[37] = 16'hCF0E;
+	icon_rom[38] = 16'hCF3E;
+	icon_rom[39] = 16'hC13E;
+	icon_rom[40] = 16'hFFFE;
+	icon_rom[41] = 16'hC006;
+	icon_rom[42] = 16'hFFFE;
+	icon_rom[43] = 16'hD556;
+	icon_rom[44] = 16'hFFFE;
+	icon_rom[45] = 16'hD556;
+	icon_rom[46] = 16'hFFFE;
+	icon_rom[47] = 16'h7FFC;
+	icon_rom[48] = 16'h0000;
+	icon_rom[49] = 16'h3FFC;
+	icon_rom[50] = 16'h4002;
+	icon_rom[51] = 16'h4FF2;
+	icon_rom[52] = 16'h500A;
+	icon_rom[53] = 16'h518A;
+	icon_rom[54] = 16'h524A;
+	icon_rom[55] = 16'h518A;
+	icon_rom[56] = 16'h502A;
+	icon_rom[57] = 16'h4F92;
+	icon_rom[58] = 16'h4012;
+	icon_rom[59] = 16'h4002;
+	icon_rom[60] = 16'h583A;
+	icon_rom[61] = 16'h4002;
+	icon_rom[62] = 16'h3FFC;
+	icon_rom[63] = 16'h0000;
+	icon_rom[64] = 16'h0000;
+	icon_rom[65] = 16'h0000;
+	icon_rom[66] = 16'h7FFE;
+	icon_rom[67] = 16'h4002;
+	icon_rom[68] = 16'h5FFA;
+	icon_rom[69] = 16'h524A;
+	icon_rom[70] = 16'h55AA;
+	icon_rom[71] = 16'h524A;
+	icon_rom[72] = 16'h5FFA;
+	icon_rom[73] = 16'h4002;
+	icon_rom[74] = 16'h47E2;
+	icon_rom[75] = 16'h4812;
+	icon_rom[76] = 16'h7FFE;
+	icon_rom[77] = 16'h0000;
+	icon_rom[78] = 16'h0000;
+	icon_rom[79] = 16'h0000;
+end
+
+// activity in wclk: a pulse held 2^STRETCH_BITS clocks
+reg [7:0] act_lvl = 8'd0;
+genvar gi;
+generate
+	for (gi = 0; gi < ICONS_N; gi = gi + 1) begin : kg_l2_icon_act
+		reg [STRETCH_BITS-1:0] cnt = {STRETCH_BITS{1'b0}};
+		always @(posedge wclk) begin
+			if (icon_act[gi])
+				cnt <= {STRETCH_BITS{1'b1}};
+			else if (cnt != 0)
+				cnt <= cnt - 1'b1;
+			act_lvl[gi] <= cnt != 0 || icon_act[gi];
+		end
+	end
+endgenerate
+
+// into the video clock, then held ICON_HOLD frames
+reg [7:0] on_s1 = 8'd0, on_s = 8'd0, act_s1 = 8'd0, act_s = 8'd0;
+reg [7:0] lit = 8'd0;
+reg [2:0] hold [0:7];
+integer hi;
+initial for (hi = 0; hi < 8; hi = hi + 1) hold[hi] = 3'd0;
+always @(posedge clk) begin
+	on_s1 <= icon_on;
+	on_s <= on_s1;
+	act_s1 <= act_lvl;
+	act_s <= act_s1;
+	for (hi = 0; hi < 8; hi = hi + 1) begin
+		if (act_s[hi])
+			hold[hi] <= ICON_HOLD[2:0];
+		else if (frame_start && hold[hi] != 3'd0)
+			hold[hi] <= hold[hi] - 3'd1;
+		lit[hi] <= act_s[hi] || hold[hi] != 3'd0;
+	end
+end
+
+// the row of icons: slots of 16 + 4 icon pixels, 8 icon pixels from the edges of the area
+localparam IW = (ICONS_N > 0) ? ICONS_N * 20 - 4 : 0;
+reg [3:0] si = 4'd2;
+reg signed [13:0] ix0 = 14'sd0, iy0 = 14'sd0;
+reg [12:0] iW = 13'd0, iH = 13'd0;
+wire [12:0] iW_n = IW * s_auto;
+wire [12:0] iH_n = 16 * s_auto;
+wire signed [13:0] im = $signed({ 7'd0, s_auto, 3'b000 });
+always @(posedge clk)
+	if (frame_start) begin
+		si <= s_auto;
+		iW <= iW_n;
+		iH <= iH_n;
+		ix0 <= (ICON_CORNER == 1 || ICON_CORNER == 3) ? im : $signed({ 2'b00, aw }) - $signed({ 1'b0, iW_n }) - im;
+		iy0 <= (ICON_CORNER < 2) ? im : $signed({ 2'b00, ah }) - $signed({ 1'b0, iH_n }) - im;
+	end
+
+wire signed [13:0] iu = xs - ix0;
+wire signed [13:0] iv = ys - iy0;
+wire ic_x = !iu[13] && iu < $signed({ 1'b0, iW });
+wire ic_y = !iv[13] && iv < $signed({ 1'b0, iH });
+reg [3:0] ihsub = 4'd0, ivsub = 4'd0;
+reg [4:0] ipx = 5'd0;     // the pixel in the slot (0..19)
+reg [2:0] islot = 3'd0;
+reg [3:0] ipy = 4'd0;
+always @(posedge clk) begin
+	if (line_start) begin
+		ihsub <= 4'd0;
+		ipx <= 5'd0;
+		islot <= 3'd0;
+	end
+	else if (de_i && ic_x) begin
+		if (ihsub == si - 1'b1) begin
+			ihsub <= 4'd0;
+			if (ipx == 5'd19) begin
+				ipx <= 5'd0;
+				islot <= islot + 1'b1;
+			end
+			else
+				ipx <= ipx + 1'b1;
+		end
+		else
+			ihsub <= ihsub + 1'b1;
+	end
+	if (frame_start) begin
+		ivsub <= 4'd0;
+		ipy <= 4'd0;
+	end
+	else if (line_end && ic_y) begin
+		if (ivsub == si - 1'b1) begin
+			ivsub <= 4'd0;
+			ipy <= ipy + 1'b1;
+		end
+		else
+			ivsub <= ivsub + 1'b1;
+	end
+end
+
+wire [2:0] ic_id = ICON_SET[{ islot, 2'b00 } +: 3]; // pictures 0..7
+reg [15:0] ic_row = 16'd0;       // the row of the pixel of stage 1, in stage 2
+always @(posedge clk)
+	ic_row <= icon_rom[{ ic_id, ipy }];
+wire ic_in = (ICONS_N > 0) && de_i && ic_x && ic_y && ipx < 5'd16 && { 1'b0, islot } < ICONS_N[3:0] &&
+             (on_s[islot] || lit[islot]);
+
+reg k_ibox = 1'b0, k_ilit = 1'b0;
+reg [3:0] k_ipx = 4'd0;
+always @(posedge clk) begin
+	k_ibox <= ic_in;
+	k_ipx <= ipx[3:0];
+	k_ilit <= lit[islot];
+end
+wire k_ipix = k_ibox && ic_row[4'd15 - k_ipx];
+
 // the background over the video, per channel
 /* verilator lint_off UNUSEDSIGNAL */
 function [7:0] blend(input [7:0] o, input [7:0] v, input [1:0] a);
 	reg [9:0] t; // the low 2 bits drop: a sum of 4 weights
 	begin
-		case (a)
-			2'd1: t = { 1'b0, o, 1'b0 } + { 1'b0, v, 1'b0 };                 // 2o + 2v
-			default: t = { 1'b0, o, 1'b0 } + { 2'b00, o } + { 2'b00, v };    // 3o + v
-		endcase
+		// 2o + v, then + v (a = 1: 2o + 2v) or + o (3o + v)
+		t = { 1'b0, o, 1'b0 } + { 2'b00, v } + { 2'b00, (a == 2'd1) ? v : o };
 		blend = (a == 2'd0) ? v : (a == 2'd3) ? o : t[9:2];
 	end
 endfunction
@@ -245,6 +475,10 @@ always @(posedge clk) begin
 		rgb_o <= fg;
 	else if (k_border)
 		rgb_o <= { blend(bg[23:16], rgb1[23:16], alpha), blend(bg[15:8], rgb1[15:8], alpha), blend(bg[7:0], rgb1[7:0], alpha) };
+	else if (k_ipix)
+		rgb_o <= k_ilit ? 24'h40FF40 : 24'h909090; // active bright green, mounted grey
+	else if (k_ibox)
+		rgb_o <= { 2'b00, rgb1[23:18], 2'b00, rgb1[15:10], 2'b00, rgb1[7:2] }; // a dark box
 	else if (k_shadow)
 		rgb_o <= { 1'b0, rgb1[23:17], 1'b0, rgb1[15:9], 1'b0, rgb1[7:1] };
 	else
