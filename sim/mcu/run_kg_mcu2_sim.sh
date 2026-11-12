@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 M=$(cd ../.. && pwd)
 mkdir -p ../build/kg_mcu2
 cd ../build/kg_mcu2
-K="$M/rtl/mcu/kg_mcu2.v $M/rtl/mcu/kg_l2_link.v $M/rtl/mcu/kg_l2_sys.v $M/rtl/mcu/kg_l2_hid.v $M/rtl/mcu/kg_l2_load.v $M/rtl/mcu/kg_l2_osd.v"
+K="$M/rtl/mcu/kg_mcu2.v $M/rtl/mcu/kg_l2_link.v $M/rtl/mcu/kg_l2_sys.v $M/rtl/mcu/kg_l2_hid.v $M/rtl/mcu/kg_l2_load.v $M/rtl/mcu/kg_l2_osd.v $M/rtl/mcu/kg_l2_img.v"
 for cfg in "31 0 17.86" "16 0 17.86" "31 300 17.86" "16 300 17.86" "16 0 40"; do
 	set -- $cfg
 	iverilog -g2001 -Wall -Wno-timescale -Ptb_kg_mcu2.SCK_HALF=$1 -Ptb_kg_mcu2.GAP=$2 -Ptb_kg_mcu2.CLK_HALF=$3 \
@@ -16,6 +16,12 @@ for cfg in "31 0 17.86" "16 0 17.86" "31 300 17.86" "16 300 17.86" "16 0 40"; do
 	grep -E "ERROR|tb_kg_mcu2:" tb_kg_mcu2.log | sed "s/^/kg_mcu2: /"
 	grep -q "tb_kg_mcu2: 0 errors" tb_kg_mcu2.log
 done
+
+# the file mounter: kg_mcu2 target 03 (kg_l2_img) against a model of a drive (sdc_*)
+iverilog -g2001 -Wall -Wno-timescale -o tb_kg_l2_img.vvp "$M/sim/mcu/tb_kg_l2_img.v" $K 2>&1 | grep -v -e 'warning: Port' -e 'warning: .* implicitly' || true
+vvp -n tb_kg_l2_img.vvp > tb_kg_l2_img.log
+grep -E "ERROR|tb_kg_l2_img:" tb_kg_l2_img.log | sed "s/^/kg_l2_img: /"
+grep -q "tb_kg_l2_img: 0 errors" tb_kg_l2_img.log
 
 # the bitmap OSD: kg_mcu2 target 02 + kg_l2_osd_overlay over an 800 x 600 picture (about a minute)
 iverilog -g2001 -Wall -Wno-timescale -o tb_kg_l2_osd.vvp "$M/sim/video/tb_kg_l2_osd.v" $K \

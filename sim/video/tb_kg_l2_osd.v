@@ -51,6 +51,8 @@ kg_mcu2 dut(
 	.OSD_WR(osd_wr), .OSD_WADDR(osd_waddr), .OSD_WDATA(osd_wdata), .OSD_EN(osd_en),
 	.OSD_FG(osd_fg), .OSD_BG(osd_bg), .OSD_ALPHA(osd_alpha), .OSD_PX(osd_px), .OSD_PY(osd_py),
 	.OSD_PW(osd_pw), .OSD_PH(osd_ph), .OSD_PLACE(osd_place), .OSD_ZOOM(osd_zoom),
+	.SDC_RD(8'd0), .SDC_WR(8'd0), .SDC_SECTOR(32'd0), .SDC_BYTE_OUT_DATA(8'd0),
+	.FDD_CHNG_REQ(1'b0), .FDD_CHNG_DS(2'd0),
 	.FT_SPI_ON(), .FT_VGA_ON(), .FT_RESET(), .FT_SCK(), .FT_MOSI(), .FT_MISO(1'b1), .FT_CS_N(),
 	.SD2_SCK(), .SD2_MOSI(), .SD2_MISO(1'b1), .SD2_CS_N()
 );

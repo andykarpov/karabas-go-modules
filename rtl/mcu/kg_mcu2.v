@@ -26,6 +26,9 @@
  - OSD (ENABLE_OSD): OSD_* of kg_l2_osd to kg_l2_osd_overlay (the bitmap and the drawing, in the
    video clock); STATUS reports 256 x 128 then.
  - LOAD: LD_* of kg_l2_load (ROMs, file loader, FL items on one bus), LD_READY from the core.
+ - IMG (ENABLE_IMG): the file mounter of kg_l2_img as the sector interface of img_sdc (SDC_*,
+   the drives of the cores as they are), IMG_WP, IMG_PHYS, IMG_FLUSH, FDD_CHNG; CAPS bit 0 says
+   so to the mcu (bit 2: write protected images are answered).
 
  Parameters: CAPS (STATUS caps, docs/link_v2.md 5.1; bit 4 = the core drives LD_READY, bit 9 =
  MIDI IN), SW_N / SW_INIT,
@@ -38,6 +41,8 @@ module kg_mcu2 #(
 	parameter [SW_N*8-1:0] SW_INIT = 0,
 	parameter CS_FILTER = 3,
 	parameter ENABLE_OSD = 1,     // the bitmap OSD (target 02): OSD_* to kg_l2_osd_overlay
+	parameter ENABLE_IMG = 0,     // the file mounter (target 03): SDC_*, IMG_*
+	parameter IMG_OUT_LATENCY = 3, // kg_l2_img: clocks from SDC_BYTE_ADDR to SDC_BYTE_OUT_DATA
 	parameter ENABLE_FT = 1,
 	parameter ENABLE_SD2 = 1
 ) (
@@ -110,6 +115,36 @@ module kg_mcu2 #(
 	output wire [1:0] OSD_PLACE,
 	output wire OSD_ZOOM,
 
+	// img (ENABLE_IMG): kg_l2_img, the sd card interface of img_sdc
+	output wire [7:0] SDC_IMG_MOUNTED,
+	output wire [63:0] SDC_IMG_SIZE,
+	/* verilator lint_off UNUSEDSIGNAL */ // ENABLE_IMG 0
+	input wire [7:0] SDC_RD,
+	input wire [7:0] SDC_WR,
+	input wire [31:0] SDC_SECTOR,
+	/* verilator lint_on UNUSEDSIGNAL */
+	output wire SDC_BUSY,
+	output wire SDC_DONE,
+	output wire SDC_ERROR,
+	output wire [2:0] SDC_SLOT,
+	output wire SDC_BYTE_IN_STROBE,
+	output wire [8:0] SDC_BYTE_ADDR,
+	output wire [7:0] SDC_BYTE_IN_DATA,
+	/* verilator lint_off UNUSEDSIGNAL */ // ENABLE_IMG 0
+	input wire [7:0] SDC_BYTE_OUT_DATA,
+	/* verilator lint_on UNUSEDSIGNAL */
+	output wire [7:0] IMG_WP,
+	output wire IMG_PHYS_WR,
+	output wire [15:0] IMG_PHYS,
+	output wire [7:0] IMG_FLUSH,
+	output wire FDD_CHNG_WR,
+	output wire [15:0] FDD_CHNG,
+	/* verilator lint_off UNUSEDSIGNAL */ // ENABLE_IMG 0
+	input wire FDD_CHNG_REQ,
+	input wire [1:0] FDD_CHNG_DS,
+	/* verilator lint_on UNUSEDSIGNAL */
+	output wire IMG_ACTIVE,
+
 	// ft812, sd2
 	output wire FT_SPI_ON,
 	output wire FT_VGA_ON,
@@ -131,17 +166,17 @@ wire [7:0] tgt, cmd, d;
 wire [9:0] n, rq_m;
 wire spi_miso, spi_sel;
 wire [7:0] irq;
-wire [7:0] q_sys, q_hid, q_load;
+wire [7:0] q_sys, q_hid, q_load, q_img;
 
 /* verilator lint_off UNUSEDSIGNAL */
-wire start_u = start; // the targets look at stb / rq only
+wire start_u = start; // only kg_l2_img looks at it
 /* verilator lint_on UNUSEDSIGNAL */
 
 kg_l2_link #(.CS_FILTER(CS_FILTER)) u_link(
 	.clk(CLK),
 	.sck(MCU_SCK), .mosi(MCU_MOSI), .miso(spi_miso), .miso_en(spi_sel), .cs_n(MCU_SS),
 	.stb(stb), .start(start), .tgt(tgt), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m),
-	.q(tgt == 8'h00 ? q_sys : tgt == 8'h01 ? q_hid : tgt == 8'h04 ? q_load : 8'h00), // OSD answers nothing
+	.q(tgt == 8'h00 ? q_sys : tgt == 8'h01 ? q_hid : tgt == 8'h03 ? q_img : tgt == 8'h04 ? q_load : 8'h00), // OSD answers nothing
 	.irq(irq), .int_out(MCU_INT)
 );
 
@@ -171,8 +206,8 @@ endgenerate
 
 // ---------------- targets ----------------
 
-wire irq_sys, irq_hid;
-assign irq = { 6'd0, irq_hid, irq_sys };
+wire irq_sys, irq_hid, irq_img;
+assign irq = { 4'd0, irq_img, 1'b0, irq_hid, irq_sys };
 
 kg_l2_sys #(.CAPS(CAPS), .OSD_W8(ENABLE_OSD ? 8'd32 : 8'd0), .OSD_H8(ENABLE_OSD ? 8'd16 : 8'd0)) u_sys(
 	.clk(CLK), .reset(~N_RESET),
@@ -219,6 +254,44 @@ generate
 		assign OSD_PH = 5'd0;
 		assign OSD_PLACE = 2'd0;
 		assign OSD_ZOOM = 1'b0;
+	end
+endgenerate
+
+generate
+	if (ENABLE_IMG) begin : kg_mcu2_img_on
+		kg_l2_img #(.OUT_LATENCY(IMG_OUT_LATENCY)) u_img(
+			.clk(CLK), .reset(~N_RESET),
+			.sel(tgt == 8'h03), .start(start), .stb(stb), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m),
+			.q(q_img), .irq(irq_img),
+			.sdc_img_mounted(SDC_IMG_MOUNTED), .sdc_img_size(SDC_IMG_SIZE), .sdc_rd(SDC_RD),
+			.sdc_wr(SDC_WR), .sdc_sector(SDC_SECTOR), .sdc_busy(SDC_BUSY), .sdc_done(SDC_DONE),
+			.sdc_error(SDC_ERROR), .sdc_slot(SDC_SLOT), .sdc_byte_in_strobe(SDC_BYTE_IN_STROBE),
+			.sdc_byte_addr(SDC_BYTE_ADDR), .sdc_byte_in_data(SDC_BYTE_IN_DATA),
+			.sdc_byte_out_data(SDC_BYTE_OUT_DATA),
+			.img_wp(IMG_WP), .img_phys_wr(IMG_PHYS_WR), .img_phys(IMG_PHYS), .img_flush(IMG_FLUSH),
+			.fdd_chng_wr(FDD_CHNG_WR), .fdd_chng(FDD_CHNG), .fdd_chng_req(FDD_CHNG_REQ),
+			.fdd_chng_ds(FDD_CHNG_DS), .active(IMG_ACTIVE)
+		);
+	end
+	else begin : kg_mcu2_img_off
+		assign q_img = 8'h00;
+		assign irq_img = 1'b0;
+		assign SDC_IMG_MOUNTED = 8'd0;
+		assign SDC_IMG_SIZE = 64'd0;
+		assign SDC_BUSY = 1'b0;
+		assign SDC_DONE = 1'b0;
+		assign SDC_ERROR = 1'b0;
+		assign SDC_SLOT = 3'd0;
+		assign SDC_BYTE_IN_STROBE = 1'b0;
+		assign SDC_BYTE_ADDR = 9'd0;
+		assign SDC_BYTE_IN_DATA = 8'd0;
+		assign IMG_WP = 8'd0;
+		assign IMG_PHYS_WR = 1'b0;
+		assign IMG_PHYS = 16'd0;
+		assign IMG_FLUSH = 8'd0;
+		assign FDD_CHNG_WR = 1'b0;
+		assign FDD_CHNG = 16'd0;
+		assign IMG_ACTIVE = 1'b0;
 	end
 endgenerate
 
