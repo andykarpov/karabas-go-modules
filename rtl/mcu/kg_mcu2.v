@@ -13,7 +13,9 @@
  come from the MCU, MISO is muxed.
 
  Core side (all in CLK):
- - SYS: SW_WR one clock per OSD switch (SW_INDEX = the switch index of core.json, SW_VALUE);
+ - SYS: the OSD switches: SW, SW_N registers of 8 bits (switch n = SW[n*8 +: 8], the index of
+   core.json; indexes from SW_N up are not kept), SW_INIT their values before the first write;
+   SW_WR one clock per write with SW_INDEX / SW_VALUE for a core that wants the moment;
    HW_ID, DVI_ONLY, CORE_BUILD / FW_BUILD (ASCII, character 0 in bits 63..56), BUSY (the mcu
    configures the core), BTNS (the on-board buttons with the action "core"), FT_*;
    RELOAD_REQ (a rising edge asks the mcu to load the core again through the boot core).
@@ -23,12 +25,15 @@
    argument) with PS2_CMD_WR to the mcu (keyboard LEDs, scancode set).
  - LOAD: LD_* of kg_l2_load (ROMs, file loader, FL items on one bus), LD_READY from the core.
 
- Parameters: CAPS (STATUS caps, docs/link_v2.md 5.1; bit 4 = the core drives LD_READY),
+ Parameters: CAPS (STATUS caps, docs/link_v2.md 5.1; bit 4 = the core drives LD_READY, bit 9 =
+ MIDI IN), SW_N / SW_INIT,
  CS_FILTER (the chip select deglitch of kg_mcu_link), ENABLE_FT / ENABLE_SD2.
 */
 
 module kg_mcu2 #(
 	parameter [15:0] CAPS = 16'h0000,
+	parameter SW_N = 16,
+	parameter [SW_N*8-1:0] SW_INIT = 0,
 	parameter CS_FILTER = 3,
 	parameter ENABLE_FT = 1,
 	parameter ENABLE_SD2 = 1
@@ -45,6 +50,7 @@ module kg_mcu2 #(
 	input wire MCU_SPI_SD2_SS,
 
 	// sys
+	output reg [SW_N*8-1:0] SW = SW_INIT, // written per byte in the generate below
 	output wire SW_WR,
 	output wire [7:0] SW_INDEX,
 	output wire [7:0] SW_VALUE,
@@ -53,7 +59,7 @@ module kg_mcu2 #(
 	output wire [63:0] CORE_BUILD,
 	output wire [63:0] FW_BUILD,
 	output wire BUSY,
-	output wire [1:0] BTNS,
+	output wire [5:0] BTNS, // 0, 1 the board, 2..5 the LED matrix buttons
 	input wire RELOAD_REQ,
 	input wire [7:0] RELOAD_CORE,
 
@@ -131,6 +137,19 @@ assign FT_CS_N = ENABLE_FT ? MCU_SPI_FT_SS : 1'b1;
 assign SD2_SCK = ENABLE_SD2 ? MCU_SCK : 1'b1;
 assign SD2_MOSI = ENABLE_SD2 ? MCU_MOSI : 1'b1;
 assign SD2_CS_N = ENABLE_SD2 ? MCU_SPI_SD2_SS : 1'b1;
+
+// ---------------- the switch registers ----------------
+
+// one register per switch (a clock enable each; see kg_mcu_hid)
+genvar g;
+generate
+	for (g = 0; g < SW_N; g = g + 1) begin : kg_mcu2_sw
+		localparam [7:0] IDX = g;
+		always @(posedge CLK)
+			if (SW_WR && SW_INDEX == IDX)
+				SW[g*8 +: 8] <= SW_VALUE;
+	end
+endgenerate
 
 // ---------------- targets ----------------
 

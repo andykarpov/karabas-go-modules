@@ -8,14 +8,16 @@
  T (target), C (command), then the payload, SPI mode 0, MSB first, 8-bit bytes. The targets
  (kg_l2_sys, kg_l2_hid, kg_l2_load, ...) sit on its byte bus:
 
-   stb        one clock per payload byte (and for the command byte, with start)
-   start      the command byte: cmd is valid from here to the end of the packet
+   stb        one clock per payload byte
+   start      one clock with the command byte: cmd is valid from here to the end of the packet
    tgt, cmd   the target and the command of the packet
    n          the index of the payload byte (0 = the byte after the command)
    d          the byte
    rq         one clock: the link wants the byte the target answers at payload position rq_m
    q          the answer (combinational on cmd, rq_m and the state of the target; the link
               registers it in the clock of rq). Reading it may advance the target (a fifo).
+ All of the bus is combinational in the clock the byte arrives in (stb, rq, the command byte),
+ the targets register what they take.
 
  Timing: the reply of packet position p goes into the shifter when byte p-1 ends, and the clk
  side sees byte p-2 only then, so q for payload position m may depend on payload bytes up to
@@ -27,6 +29,8 @@
  active high).
 
  Chip select: as kg_mcu_link, cs_n goes low at once and high only after CS_FILTER clocks high.
+ Clocks: a byte crosses into clk in 3 clocks, its answer is needed ~7.5 sck periods later:
+ f_clk > 3.5 / (6 / f_sck) or so; 28 MHz with 32 MHz sck has margin (tb_kg_mcu2).
 */
 
 module kg_l2_link #(
@@ -40,14 +44,14 @@ module kg_l2_link #(
 	output wire miso_en,     // selected: the core muxes the other slaves of the bus
 	input wire cs_n,
 
-	output reg stb = 1'b0,
-	output reg start = 1'b0,
+	output wire stb,
+	output wire start,
 	output reg [7:0] tgt = 8'hFF,
-	output reg [7:0] cmd = 8'h00,
-	output reg [9:0] n = 10'd0,
-	output reg [7:0] d = 8'h00,
-	output reg rq = 1'b0,
-	output reg [9:0] rq_m = 10'd0,
+	output wire [7:0] cmd,
+	output wire [9:0] n,
+	output wire [7:0] d,
+	output wire rq,
+	output wire [9:0] rq_m,
 	input wire [7:0] q,
 
 	input wire [7:0] irq,
@@ -74,89 +78,99 @@ endgenerate
 
 assign miso_en = ~cs_n_f;
 
-// ---------------- bytes ----------------
+reg [7:0] di = 8'h00; // the answer for the next byte
 
-reg [7:0] di = 8'h00;
-reg wren = 1'b0;
-wire do_valid;
-wire [7:0] dout;
+// ---------------- sck domain ----------------
+//
+// Receive: bits on the rising edge, a whole byte into byte_hold with a toggle (the byte holds for
+// the next 8 sck periods). Transmit: the falling edge after the last bit of a byte loads di (the
+// answer for the next byte), the other falling edges shift. di is written by the clk side two
+// or more clocks after the byte before the last one, so it is stable at that edge.
 
-/* verilator lint_off PINCONNECTEMPTY */
-kg_spi_slave #(.N(8), .PREFETCH(2)) u_spi(
-	.clk(clk), .sck(sck), .ssel(cs_n_f), .mosi(mosi), .miso(miso),
-	.di(di), .wren(wren), .di_req(),
-	.do_valid(do_valid), .dout(dout)
-);
-/* verilator lint_on PINCONNECTEMPTY */
+/* verilator lint_off SYNCASYNCNET */
+reg [2:0] bitcnt = 3'd0;
+always @(posedge sck or posedge cs_n_f)
+	if (cs_n_f)
+		bitcnt <= 3'd0;
+	else
+		bitcnt <= bitcnt + 3'd1;
 
-// the chip select in this clock: a packet ends when it has been high for 8 clocks, so the last
-// byte (do_valid comes ~4 clocks after its last bit) is always taken first
+reg [7:0] txsh = 8'h00;
+reg first = 1'b1; // no byte of the packet ended yet
+always @(negedge sck or posedge cs_n_f)
+	if (cs_n_f) begin
+		txsh <= 8'h00;
+		first <= 1'b1;
+	end
+	else if (bitcnt == 3'd0 && !first)
+		txsh <= di;
+	else begin
+		txsh <= { txsh[6:0], 1'b0 };
+		first <= 1'b0;
+	end
+/* verilator lint_on SYNCASYNCNET */
+assign miso = txsh[7];
+
+reg [6:0] shreg = 7'd0;
+reg [7:0] byte_hold = 8'd0;
+reg byte_tgl = 1'b0;
+always @(posedge sck)
+	if (!cs_n_f) begin
+		shreg <= { shreg[5:0], mosi };
+		if (bitcnt == 3'd7) begin
+			byte_hold <= { shreg, mosi };
+			byte_tgl <= ~byte_tgl;
+		end
+	end
+
+// ---------------- clk domain ----------------
+
+reg [2:0] tgl_s = 3'd0;
+always @(posedge clk)
+	tgl_s <= { tgl_s[1:0], byte_tgl };
+wire byte_in = tgl_s[2] != tgl_s[1];
+
+// the chip select: a packet ends when it has been high for 8 clocks, after its last byte
 reg [1:0] cs_s = 2'b11;
 reg [3:0] high = 4'd0;
-/* verilator lint_off SYNCASYNCNET */
 always @(posedge clk) begin
-	cs_s <= { cs_s[0], cs_n_f }; // a synchroniser: the shifter takes it as its async reset
+	cs_s <= { cs_s[0], cs_n_f };
 	if (!cs_s[1])
 		high <= 4'd0;
 	else if (!high[3])
 		high <= high + 1'b1;
 end
-/* verilator lint_on SYNCASYNCNET */
 wire idle = high[3];
 
-// do_valid of kg_spi_slave can be two clocks long: a byte is its first
-reg valid_d = 1'b0;
-always @(posedge clk)
-	valid_d <= do_valid;
-wire byte_in = do_valid & ~valid_d;
-
 reg [10:0] pos = 11'd0; // the next byte of the packet: 0 target, 1 command, 2.. payload
+reg [7:0] cmd_r = 8'h00;
+
+// the byte bus: combinational in the clock of the byte (the targets register it)
+assign start = byte_in && pos == 11'd1;
+assign cmd = start ? byte_hold : cmd_r;
+assign stb = byte_in && pos >= 11'd2;
+assign n = pos[9:0] - 10'd2;
+assign d = byte_hold;
+// the answer for packet position pos + 2 = payload position pos
+assign rq = byte_in && pos != 11'd0;
+assign rq_m = pos[9:0];
 
 always @(posedge clk) begin
-	stb <= 1'b0;
-	start <= 1'b0;
-	rq <= 1'b0;
-	wren <= 1'b0;
 	int_out <= |irq;
-
-	if (idle) begin
-		pos <= 11'd0;
-		tgt <= 8'hFF;
-		// the reply of position 1: nothing (the shifter needs a word for every byte)
-		if (pos != 11'd0) begin
-			di <= 8'h00;
-			wren <= 1'b1;
-		end
-	end
-	else if (byte_in) begin
+	if (byte_in) begin
 		if (pos != 11'h7FF)
 			pos <= pos + 1'b1;
-		if (pos == 11'd0) begin
-			tgt <= dout;
-			// the reply of position 2 (payload 0): the command is not known yet
-			di <= 8'h00;
-			wren <= 1'b1;
-		end
-		else begin
-			if (pos == 11'd1) begin
-				cmd <= dout;
-				start <= 1'b1;
-			end
-			else begin
-				d <= dout;
-				n <= pos[9:0] - 10'd2;
-				stb <= 1'b1;
-			end
-			// ask for the reply of payload position pos (packet position pos + 2)
-			rq <= 1'b1;
-			rq_m <= pos[9:0];
-		end
+		if (pos == 11'd0)
+			tgt <= byte_hold;
+		if (start)
+			cmd_r <= byte_hold;
+		// the answer: nothing for payload position 0 (the command is not in yet)
+		di <= (pos == 11'd0) ? 8'h00 : q;
 	end
-
-	// the reply asked in the clock before
-	if (rq) begin
-		di <= q;
-		wren <= 1'b1;
+	else if (idle) begin
+		pos <= 11'd0;
+		tgt <= 8'hFF;
+		di <= 8'h00;
 	end
 end
 

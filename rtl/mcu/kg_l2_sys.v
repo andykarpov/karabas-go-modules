@@ -15,7 +15,7 @@
                    18..1F firmware build (character 0 in bits 63..56)
    05 INIT         1 = start (busy), 0 = done
    06 SPI_CONTROL  bit 0 FT812 SPI, 1 FT812 video, 4 FT812 reset
-   07 BTN          button, state
+   07 BTN          button, state: 0, 1 the on-board buttons, 2..5 the LED matrix buttons
    08 RELOAD       Z, core id (reading clears the request)
 
  coldboot is set after the configuration of the fpga and while reset is high (the link of the
@@ -55,7 +55,7 @@ module kg_l2_sys #(
 	output reg ft_spi_on = 1'b0,
 	output reg ft_vga_on = 1'b0,
 	output reg ft_reset = 1'b0,
-	output reg [1:0] btns = 2'b00,
+	output reg [5:0] btns = 6'd0,
 
 	input wire reload_req,   // a rising edge asks the mcu to load core reload_core
 	input wire [7:0] reload_core
@@ -145,8 +145,16 @@ always @(posedge clk) begin
 			8'h07:
 				if (n == 10'd0)
 					idx <= d;
-				else if (n == 10'd1 && idx[7:1] == 7'd0)
-					btns[idx[0]] <= d[0];
+				else if (n == 10'd1)
+					case (idx)
+						8'd0: btns[0] <= d[0];
+						8'd1: btns[1] <= d[0];
+						8'd2: btns[2] <= d[0];
+						8'd3: btns[3] <= d[0];
+						8'd4: btns[4] <= d[0];
+						8'd5: btns[5] <= d[0];
+						default: ;
+					endcase
 			default: ;
 		endcase
 end

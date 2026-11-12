@@ -12,7 +12,8 @@
    02 PS2    (kind, code) x n: kind 0 = a PS/2 set 2 byte, 1 = an XT byte (bit 7 release);
              ps2_wr one clock per pair with ps2_kind / ps2_code
    03 MOUSE  dx, dy, wheel, buttons: ms_wr one clock when the 4 bytes are in
-   04 JOY    port, bits 7..0, bits 15..8: joy_l (port 0) / joy_r (port 1), joy_wr one clock
+   04 JOY    (port, bits 7..0, bits 15..8) x n: joy_l (port 0) / joy_r (port 1), joy_wr one clock
+             per port
              (bits: 0 connected, 1 up, 2 down, 3 left, 4 right, 5 start, 6 A, 7 B, 8 C, 9 X,
              10 Y, 11 Z, 12 mode)
    06 EVENT  Z, count, then (command, argument) x count: the PS/2 commands of the core to the
@@ -56,6 +57,7 @@ reg [7:0] kb_mod = 8'd0;
 reg kind = 1'b0;
 reg [7:0] mx = 8'd0, my = 8'd0, mz = 8'd0;
 reg jport = 1'b0;
+reg [1:0] jph = 2'd0; // the byte of a JOY entry: 0 port, 1 low, 2 high
 reg [7:0] jlo = 8'd0;
 
 // ---------------- the commands of the core ----------------
@@ -144,19 +146,22 @@ always @(posedge clk) begin
 					end
 					default: ;
 				endcase
-			8'h04:
-				case (n)
-					10'd0: jport <= d[0];
-					10'd1: jlo <= d;
-					10'd2: begin
+			8'h04: begin : joy_entry
+				reg [1:0] ph;
+				ph = (n == 10'd0) ? 2'd0 : jph;
+				jph <= (ph == 2'd2) ? 2'd0 : ph + 1'b1;
+				case (ph)
+					2'd0: jport <= d[0];
+					2'd1: jlo <= d;
+					default: begin
 						if (jport)
 							joy_r <= { d, jlo };
 						else
 							joy_l <= { d, jlo };
 						joy_wr <= 1'b1;
 					end
-					default: ;
 				endcase
+			end
 			default: ;
 		endcase
 end
