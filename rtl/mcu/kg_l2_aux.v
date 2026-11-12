@@ -40,7 +40,11 @@ module kg_l2_aux (
 
 // ---------------- the frames of the core ----------------
 
-reg [7:0] plane [0:31];
+// the planes in LUT RAM: the red rows (byte {matrix, y}) and the green rows, a byte of each
+// written per clock; a byte not written since a clear reads 0 (valid bits)
+reg [7:0] red [0:15];
+reg [7:0] grn [0:15];
+reg [15:0] red_v = 16'd0, grn_v = 16'd0;
 reg [7:0] ctl = 8'd0;
 reg [2:0] changed = 3'b000;
 reg [15:0] peak_l = 16'd0, peak_r = 16'd0;
@@ -60,8 +64,25 @@ wire rd_matrix = sel && rq && cmd == 8'h01 && rq_m == 10'd1;
 wire rd_peaks = sel && rq && cmd == 8'h02 && rq_m == 10'd1;
 wire rd_debug = sel && rq && cmd == 8'h03 && rq_m == 10'd1;
 
-integer i;
-initial for (i = 0; i < 32; i = i + 1) plane[i] = 8'd0;
+// PIXEL and BITPLAN: the byte of each plane (read for a pixel: the other bits stay)
+wire [3:0] pa = { f_a[3], f_a[6:4] };          // PIXEL: matrix, y
+wire [3:0] ba = { f_a[4], f_a[2:0] };          // BITPLAN: matrix, y (bit 3 of the byte: green)
+wire [7:0] red_old = red_v[pa] ? red[pa] : 8'd0;
+wire [7:0] grn_old = grn_v[pa] ? grn[pa] : 8'd0;
+wire [7:0] px_mask = 8'd1 << px_col;
+wire px_wr = matrix_cmd_wr && f_cmd == 8'h61;
+wire bp_wr = matrix_cmd_wr && f_cmd == 8'h62;
+wire [3:0] red_wa = px_wr ? pa : ba;
+wire [7:0] red_wd = px_wr ? (px_on_r ? red_old | px_mask : red_old & ~px_mask) : f_d;
+wire red_we = px_wr || (bp_wr && !f_a[3]);
+wire [7:0] grn_wd = px_wr ? (px_on_g ? grn_old | px_mask : grn_old & ~px_mask) : f_d;
+wire grn_we = px_wr || (bp_wr && f_a[3]);
+always @(posedge clk) begin
+	if (red_we)
+		red[red_wa] <= red_wd;
+	if (grn_we)
+		grn[red_wa] <= grn_wd;
+end
 
 always @(posedge clk) begin
 	if (rd_matrix) changed[0] <= 1'b0;
@@ -77,8 +98,10 @@ always @(posedge clk) begin
 	if (matrix_cmd_wr)
 		case (f_cmd)
 			8'h60: begin
-				if (f_d[0])
-					for (i = 0; i < 32; i = i + 1) plane[i] <= 8'd0;
+				if (f_d[0]) begin
+					red_v <= 16'd0;
+					grn_v <= 16'd0;
+				end
 				if (f_d[1] || f_d[2] || f_d[3] != ctl[3])
 					changed[0] <= 1'b1;
 				ctl[3] <= f_d[3];
@@ -87,11 +110,14 @@ always @(posedge clk) begin
 				ctl[2] <= ctl[2] | f_d[2];
 			end
 			8'h61: begin
-				plane[{ f_a[3], 1'b0, f_a[6:4] }][px_col] <= px_on_r;
-				plane[{ f_a[3], 1'b1, f_a[6:4] }][px_col] <= px_on_g;
+				red_v[pa] <= 1'b1;
+				grn_v[pa] <= 1'b1;
 			end
 			8'h62:
-				plane[f_a[4:0]] <= f_d;
+				if (f_a[3])
+					grn_v[ba] <= 1'b1;
+				else
+					red_v[ba] <= 1'b1;
 			8'h70: begin
 				if (f_peak > peak_l || rd_peaks) peak_l <= f_peak;
 				changed[1] <= 1'b1;
@@ -120,7 +146,8 @@ assign irq = |changed;
 /* verilator lint_off UNUSEDSIGNAL */
 wire [9:0] rq_m_2 = rq_m - 10'd2;
 /* verilator lint_on UNUSEDSIGNAL */
-wire [7:0] plane_q = plane[rq_m_2[4:0]];
+wire [3:0] qa = { rq_m_2[4], rq_m_2[2:0] };
+wire [7:0] plane_q = rq_m_2[3] ? (grn_v[qa] ? grn[qa] : 8'd0) : (red_v[qa] ? red[qa] : 8'd0);
 
 always @(*) begin
 	q = 8'h00;

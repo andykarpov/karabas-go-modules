@@ -238,103 +238,99 @@ end
 
 // ---------------- the activity icons ----------------
 
-// the pictures: row y of icon i (bit 15 = the left pixel)
-function [15:0] icon_row(input [7:0] a);
-	case (a)
-		// 0 FDD
-		8'd0: icon_row = 16'h0000;
-		8'd1: icon_row = 16'hFFF8;
-		8'd2: icon_row = 16'hF01C;
-		8'd3: icon_row = 16'hF05E;
-		8'd4: icon_row = 16'hF05E;
-		8'd5: icon_row = 16'hF01E;
-		8'd6: icon_row = 16'hFFFE;
-		8'd7: icon_row = 16'hFFFE;
-		8'd8: icon_row = 16'hFFFE;
-		8'd9: icon_row = 16'hFFFE;
-		8'd10: icon_row = 16'hE00E;
-		8'd11: icon_row = 16'hEFEE;
-		8'd12: icon_row = 16'hE00E;
-		8'd13: icon_row = 16'hEFEE;
-		8'd14: icon_row = 16'hE00E;
-		8'd15: icon_row = 16'hFFFE;
-		// 1 SD
-		8'd16: icon_row = 16'h0000;
-		8'd17: icon_row = 16'h1FFE;
-		8'd18: icon_row = 16'h3926;
-		8'd19: icon_row = 16'h6926;
-		8'd20: icon_row = 16'hC926;
-		8'd21: icon_row = 16'hCFFE;
-		8'd22: icon_row = 16'hFFFE;
-		8'd23: icon_row = 16'hC10E;
-		8'd24: icon_row = 16'hCF36;
-		8'd25: icon_row = 16'hC136;
-		8'd26: icon_row = 16'hF936;
-		8'd27: icon_row = 16'hC10E;
-		8'd28: icon_row = 16'hFFFE;
-		8'd29: icon_row = 16'hC006;
-		8'd30: icon_row = 16'hFFFE;
-		8'd31: icon_row = 16'hFFFE;
-		// 2 CF
-		8'd32: icon_row = 16'h0000;
-		8'd33: icon_row = 16'h7FFC;
-		8'd34: icon_row = 16'hFFFE;
-		8'd35: icon_row = 16'hC106;
-		8'd36: icon_row = 16'hCF3E;
-		8'd37: icon_row = 16'hCF0E;
-		8'd38: icon_row = 16'hCF3E;
-		8'd39: icon_row = 16'hC13E;
-		8'd40: icon_row = 16'hFFFE;
-		8'd41: icon_row = 16'hC006;
-		8'd42: icon_row = 16'hFFFE;
-		8'd43: icon_row = 16'hD556;
-		8'd44: icon_row = 16'hFFFE;
-		8'd45: icon_row = 16'hD556;
-		8'd46: icon_row = 16'hFFFE;
-		8'd47: icon_row = 16'h7FFC;
-		// 3 HDD
-		8'd48: icon_row = 16'h0000;
-		8'd49: icon_row = 16'h3FFC;
-		8'd50: icon_row = 16'h4002;
-		8'd51: icon_row = 16'h4FF2;
-		8'd52: icon_row = 16'h500A;
-		8'd53: icon_row = 16'h518A;
-		8'd54: icon_row = 16'h524A;
-		8'd55: icon_row = 16'h518A;
-		8'd56: icon_row = 16'h502A;
-		8'd57: icon_row = 16'h4F92;
-		8'd58: icon_row = 16'h4012;
-		8'd59: icon_row = 16'h4002;
-		8'd60: icon_row = 16'h583A;
-		8'd61: icon_row = 16'h4002;
-		8'd62: icon_row = 16'h3FFC;
-		8'd63: icon_row = 16'h0000;
-		// 4 TAPE
-		8'd64: icon_row = 16'h0000;
-		8'd65: icon_row = 16'h0000;
-		8'd66: icon_row = 16'h7FFE;
-		8'd67: icon_row = 16'h4002;
-		8'd68: icon_row = 16'h5FFA;
-		8'd69: icon_row = 16'h524A;
-		8'd70: icon_row = 16'h55AA;
-		8'd71: icon_row = 16'h524A;
-		8'd72: icon_row = 16'h5FFA;
-		8'd73: icon_row = 16'h4002;
-		8'd74: icon_row = 16'h47E2;
-		8'd75: icon_row = 16'h4812;
-		8'd76: icon_row = 16'h7FFE;
-		8'd77: icon_row = 16'h0000;
-		8'd78: icon_row = 16'h0000;
-		8'd79: icon_row = 16'h0000;
-		default: icon_row = 16'h0000;
-	endcase
-endfunction
+// the pictures: row y of icon i at i * 16 + y (bit 15 = the left pixel): 0 floppy, 1 SD, 2 CF,
+// 3 hard disk, 4 tape; a ROM read a clock before its pixel
+reg [15:0] icon_rom [0:127];
+integer ri;
+initial begin
+	for (ri = 0; ri < 128; ri = ri + 1) icon_rom[ri] = 16'h0000;
+	icon_rom[0] = 16'h0000;
+	icon_rom[1] = 16'hFFF8;
+	icon_rom[2] = 16'hF01C;
+	icon_rom[3] = 16'hF05E;
+	icon_rom[4] = 16'hF05E;
+	icon_rom[5] = 16'hF01E;
+	icon_rom[6] = 16'hFFFE;
+	icon_rom[7] = 16'hFFFE;
+	icon_rom[8] = 16'hFFFE;
+	icon_rom[9] = 16'hFFFE;
+	icon_rom[10] = 16'hE00E;
+	icon_rom[11] = 16'hEFEE;
+	icon_rom[12] = 16'hE00E;
+	icon_rom[13] = 16'hEFEE;
+	icon_rom[14] = 16'hE00E;
+	icon_rom[15] = 16'hFFFE;
+	icon_rom[16] = 16'h0000;
+	icon_rom[17] = 16'h1FFE;
+	icon_rom[18] = 16'h3926;
+	icon_rom[19] = 16'h6926;
+	icon_rom[20] = 16'hC926;
+	icon_rom[21] = 16'hCFFE;
+	icon_rom[22] = 16'hFFFE;
+	icon_rom[23] = 16'hC10E;
+	icon_rom[24] = 16'hCF36;
+	icon_rom[25] = 16'hC136;
+	icon_rom[26] = 16'hF936;
+	icon_rom[27] = 16'hC10E;
+	icon_rom[28] = 16'hFFFE;
+	icon_rom[29] = 16'hC006;
+	icon_rom[30] = 16'hFFFE;
+	icon_rom[31] = 16'hFFFE;
+	icon_rom[32] = 16'h0000;
+	icon_rom[33] = 16'h7FFC;
+	icon_rom[34] = 16'hFFFE;
+	icon_rom[35] = 16'hC106;
+	icon_rom[36] = 16'hCF3E;
+	icon_rom[37] = 16'hCF0E;
+	icon_rom[38] = 16'hCF3E;
+	icon_rom[39] = 16'hC13E;
+	icon_rom[40] = 16'hFFFE;
+	icon_rom[41] = 16'hC006;
+	icon_rom[42] = 16'hFFFE;
+	icon_rom[43] = 16'hD556;
+	icon_rom[44] = 16'hFFFE;
+	icon_rom[45] = 16'hD556;
+	icon_rom[46] = 16'hFFFE;
+	icon_rom[47] = 16'h7FFC;
+	icon_rom[48] = 16'h0000;
+	icon_rom[49] = 16'h3FFC;
+	icon_rom[50] = 16'h4002;
+	icon_rom[51] = 16'h4FF2;
+	icon_rom[52] = 16'h500A;
+	icon_rom[53] = 16'h518A;
+	icon_rom[54] = 16'h524A;
+	icon_rom[55] = 16'h518A;
+	icon_rom[56] = 16'h502A;
+	icon_rom[57] = 16'h4F92;
+	icon_rom[58] = 16'h4012;
+	icon_rom[59] = 16'h4002;
+	icon_rom[60] = 16'h583A;
+	icon_rom[61] = 16'h4002;
+	icon_rom[62] = 16'h3FFC;
+	icon_rom[63] = 16'h0000;
+	icon_rom[64] = 16'h0000;
+	icon_rom[65] = 16'h0000;
+	icon_rom[66] = 16'h7FFE;
+	icon_rom[67] = 16'h4002;
+	icon_rom[68] = 16'h5FFA;
+	icon_rom[69] = 16'h524A;
+	icon_rom[70] = 16'h55AA;
+	icon_rom[71] = 16'h524A;
+	icon_rom[72] = 16'h5FFA;
+	icon_rom[73] = 16'h4002;
+	icon_rom[74] = 16'h47E2;
+	icon_rom[75] = 16'h4812;
+	icon_rom[76] = 16'h7FFE;
+	icon_rom[77] = 16'h0000;
+	icon_rom[78] = 16'h0000;
+	icon_rom[79] = 16'h0000;
+end
 
 // activity in wclk: a pulse held 2^STRETCH_BITS clocks
 reg [7:0] act_lvl = 8'd0;
 genvar gi;
 generate
-	for (gi = 0; gi < 8; gi = gi + 1) begin : kg_l2_icon_act
+	for (gi = 0; gi < ICONS_N; gi = gi + 1) begin : kg_l2_icon_act
 		reg [STRETCH_BITS-1:0] cnt = {STRETCH_BITS{1'b0}};
 		always @(posedge wclk) begin
 			if (icon_act[gi])
@@ -422,17 +418,21 @@ always @(posedge clk) begin
 	end
 end
 
-wire [3:0] ic_id = ICON_SET[{ islot, 2'b00 } +: 4];
-wire [15:0] ic_row = icon_row({ ic_id, ipy });
+wire [2:0] ic_id = ICON_SET[{ islot, 2'b00 } +: 3]; // pictures 0..7
+reg [15:0] ic_row = 16'd0;       // the row of the pixel of stage 1, in stage 2
+always @(posedge clk)
+	ic_row <= icon_rom[{ ic_id, ipy }];
 wire ic_in = (ICONS_N > 0) && de_i && ic_x && ic_y && ipx < 5'd16 && { 1'b0, islot } < ICONS_N[3:0] &&
              (on_s[islot] || lit[islot]);
 
-reg k_ibox = 1'b0, k_ipix = 1'b0, k_ilit = 1'b0;
+reg k_ibox = 1'b0, k_ilit = 1'b0;
+reg [3:0] k_ipx = 4'd0;
 always @(posedge clk) begin
 	k_ibox <= ic_in;
-	k_ipix <= ic_in && ic_row[4'd15 - ipx[3:0]];
+	k_ipx <= ipx[3:0];
 	k_ilit <= lit[islot];
 end
+wire k_ipix = k_ibox && ic_row[4'd15 - k_ipx];
 
 // the background over the video, per channel
 /* verilator lint_off UNUSEDSIGNAL */
