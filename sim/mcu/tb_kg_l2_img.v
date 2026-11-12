@@ -68,6 +68,8 @@ kg_mcu2 #(.CAPS(16'h0005), .ENABLE_OSD(0), .ENABLE_IMG(1), .IMG_OUT_LATENCY(3)) 
 	.IMG_WP(img_wp), .IMG_PHYS_WR(phys_wr), .IMG_PHYS(img_phys), .IMG_FLUSH(img_flush),
 	.FDD_CHNG_WR(chng_wr), .FDD_CHNG(fdd_chng), .FDD_CHNG_REQ(chng_req), .FDD_CHNG_DS(chng_ds),
 	.IMG_ACTIVE(img_active),
+	.PORT_OUT_DATA(), .PORT_OUT_WR(), .PORT_OUT_READY(4'd0), .PORT_IN_DATA(32'd0), .PORT_IN_WR(4'd0),
+	.PORT_IN_FULL(), .PORT_CFG(128'd0), .PORT_STAT(), .PORT_STAT_WR(),
 	.FT_SPI_ON(), .FT_VGA_ON(), .FT_RESET(), .FT_SCK(), .FT_MOSI(), .FT_MISO(1'b1), .FT_CS_N(),
 	.SD2_SCK(), .SD2_MOSI(), .SD2_MISO(1'b1), .SD2_CS_N()
 );

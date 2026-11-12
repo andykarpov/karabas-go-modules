@@ -12,7 +12,7 @@ branch `link-v2`): use its `src/rtl/karabas_minig_top.v` as the example.
   into `link-v2`. `link-v2` goes into master only when all cores are moved. A core that has no
   `link-v2` branch yet: `git push origin origin/master:refs/heads/link-v2`.
 - **What exists.** Phases of `docs/link_v2.md` section 10. Ф2 (done): transport, SYS, HID,
-  LOAD; Ф3: OSD (`kg_l2_osd`); Ф4: IMG, the file mounter (`kg_l2_img`; `.sav` backup RAM not yet). Not yet: PORT / RTC / AUX (Ф5:
+  LOAD; Ф3: OSD (`kg_l2_osd`); Ф4: IMG, the file mounter (`kg_l2_img`; `.sav` backup RAM not yet); Ф5: PORT (`kg_l2_port`). Not yet: RTC / AUX (Ф5:
   UART, ESP, MIDI, printer, clock, LED matrix). A core that needs one of the missing targets
   waits for its phase, or moves without the feature for now (vic20 runs without its disk and OSD
   in Ф2). Do not invent commands: a new command goes into the spec first, then here and into the
@@ -57,7 +57,8 @@ branch `link-v2`): use its `src/rtl/karabas_minig_top.v` as the example.
    | `IMG_*` + `img_sdc` (file mounter) | `ENABLE_IMG(1)`, `IMG_OUT_LATENCY` (= `OUT_LATENCY` of `img_sdc`): `SDC_*` (the `sdc_*` side of `img_sdc`, the same ports), `IMG_WP`, `IMG_PHYS*`, `IMG_FLUSH`, `FDD_CHNG*` (`FDD_CHNG_REQ` / `_DS` in), `IMG_ACTIVE`; `CAPS` bit 0 (bit 2: write protected images) | drop `img_sdc`: its `sdc_*` nets go to `kg_mcu2` as they are; prj adds `mcu/kg_l2_img.v` |
    | `kg_bk_ram` (`.sav`), `hdf_ata` | not yet: they sit on the v1 `img_*` bus | wait (a `kg_bk_ram` on `SDC_*` comes with the first core that needs it) |
    | `OSD_COMMAND` + `kg_osd_overlay` | Ф3 (`kg_l2_osd`) | until then: `osd_command = 0` (no overlay) |
-   | `RTC_*`, `UART_*`, `ESP_*`, `MIDI_*`, `PRN_*`, `MATRIX_CMD`, `DEBUG_*` | Ф5 | until then: off |
+   | `UART_*`, `ESP_*`, `MIDI_*`, `PRN_*` (kg_mcu_uart / _esp / _midi / _printer) | `ENABLE_PORTS` bit 0 / 1 / 2 / 3, `PORT_*` (one `kg_l2_port` per port: bytes of the mcu `PORT_OUT_DATA` + `PORT_OUT_WR` while `PORT_OUT_READY`, bytes to the mcu `PORT_IN_DATA` / `_WR`, `PORT_IN_FULL`; `PORT_CFG` port 0 = DLL, DLM; `PORT_STAT` port 3 = printer status); prj adds `mcu/kg_l2_port.v` | ESP of esp8266.vhd (byte held until ack): `in_wr = rx_wr && !full`, `ack = in_wr`; MIDI: `PORT_OUT_WR[2]` is `midi_wr`, `MIDI_LOST` goes |
+   | `RTC_*`, `MATRIX_CMD`, `DEBUG_*` | Ф5 (RTC, AUX) | until then: off |
 
    The bytes of a load come at most every 250 ns (32 MHz sck), one `LD_WR` each; `LD_START`
    is one clock after the size of a new file (the reset of what it loads into); `LD_END` one
