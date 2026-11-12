@@ -11,12 +11,12 @@ branch `link-v2`): use its `src/rtl/karabas_minig_top.v` as the example.
   modules, tools, every core), never into master: work on a feature branch from `link-v2`, PR
   into `link-v2`. `link-v2` goes into master only when all cores are moved. A core that has no
   `link-v2` branch yet: `git push origin origin/master:refs/heads/link-v2`.
-- **What exists.** Phases of `docs/link_v2.md` section 10. Ф2 (done): transport, SYS, HID,
-  LOAD; Ф3: OSD (`kg_l2_osd`); Ф4: IMG, the file mounter (`kg_l2_img`; `.sav` backup RAM not yet); Ф5: PORT (`kg_l2_port`). Not yet: RTC / AUX (Ф5:
-  UART, ESP, MIDI, printer, clock, LED matrix). A core that needs one of the missing targets
-  waits for its phase, or moves without the feature for now (vic20 runs without its disk and OSD
-  in Ф2). Do not invent commands: a new command goes into the spec first, then here and into the
-  firmware.
+- **What exists.** Phases of `docs/link_v2.md` section 10. Ф2: transport, SYS, HID, LOAD; Ф3:
+  OSD (`kg_l2_osd`); Ф4: IMG, the file mounter (`kg_l2_img`); Ф5: PORT (`kg_l2_port`), RTC
+  (`kg_l2_rtc`), AUX (`kg_l2_aux`). All targets of the spec are in; `.sav` (`kg_bk_ram`) and
+  `hdf_ata` still sit on v1: a core that needs them waits, or moves without them for now (as
+  vic20 ran without its disk and OSD in Ф2). Do not invent commands: a new command goes into the
+  spec first, then here and into the firmware.
 - **Firmware.** The board needs a firmware of the firmware `link-v2` branch (it speaks both
   links; v1 cores work on it unchanged). Released firmware does not load a link 2 core at all
   (its bitstream is in section `BITSTREAM_LINK2`).
@@ -54,11 +54,13 @@ branch `link-v2`): use its `src/rtl/karabas_minig_top.v` as the example.
    | `ROMLOADER_ACTIVE`, `ROMLOAD_ADDR/DATA/WR` | `LD_*` with `LD_KIND == 0` | `rom_active = LD_ACTIVE && kind 0`, `rom_wr = LD_WR && kind 0`, addr / data = `LD_ADDR` / `LD_DATA` |
    | `FILELOAD_RESET/ACTIVE/ADDR/DATA/WR/SLOT/SIZE` (file loader or ioctl) | `LD_*` with `LD_KIND == 1` (file loader) or `2` (FL items) | `file_reset = LD_START && kind`, `file_active = LD_ACTIVE && kind`, `file_wr = LD_WR && kind`, `LD_SLOT`, `LD_SIZE`; `FILE_TO_ROM` / `FILE_WR_EACH` become the core's own choice (`LD_WR` is one clock per byte) |
    | `MCU_BURST_READY` (a slow memory) | `LD_READY` + `CAPS` bit 4 | drive `LD_READY` low while the core cannot take 512 bytes |
+   | (CAPS) | bits 0 IMG, 5 RTC, 6 AUX come from `ENABLE_*`; set the others (2 WP images, 4 LD_READY, 9 MIDI) in `CAPS` | |
    | `IMG_*` + `img_sdc` (file mounter) | `ENABLE_IMG(1)`, `IMG_OUT_LATENCY` (= `OUT_LATENCY` of `img_sdc`): `SDC_*` (the `sdc_*` side of `img_sdc`, the same ports), `IMG_WP`, `IMG_PHYS*`, `IMG_FLUSH`, `FDD_CHNG*` (`FDD_CHNG_REQ` / `_DS` in), `IMG_ACTIVE`; `CAPS` bit 0 (bit 2: write protected images) | drop `img_sdc`: its `sdc_*` nets go to `kg_mcu2` as they are; prj adds `mcu/kg_l2_img.v` |
    | `kg_bk_ram` (`.sav`), `hdf_ata` | not yet: they sit on the v1 `img_*` bus | wait (a `kg_bk_ram` on `SDC_*` comes with the first core that needs it) |
    | `OSD_COMMAND` + `kg_osd_overlay` | Ф3 (`kg_l2_osd`) | until then: `osd_command = 0` (no overlay) |
    | `UART_*`, `ESP_*`, `MIDI_*`, `PRN_*` (kg_mcu_uart / _esp / _midi / _printer) | `ENABLE_PORTS` bit 0 / 1 / 2 / 3, `PORT_*` (one `kg_l2_port` per port: bytes of the mcu `PORT_OUT_DATA` + `PORT_OUT_WR` while `PORT_OUT_READY`, bytes to the mcu `PORT_IN_DATA` / `_WR`, `PORT_IN_FULL`; `PORT_CFG` port 0 = DLL, DLM; `PORT_STAT` port 3 = printer status); prj adds `mcu/kg_l2_port.v` | ESP of esp8266.vhd (byte held until ack): `in_wr = rx_wr && !full`, `ack = in_wr`; MIDI: `PORT_OUT_WR[2]` is `midi_wr`, `MIDI_LOST` goes |
-   | `RTC_*`, `MATRIX_CMD`, `DEBUG_*` | Ф5 (RTC, AUX) | until then: off |
+   | `RTC_*` (kg_mcu_rtc) | `ENABLE_RTC(1)` (`RTC_SKIP_0D`, `RTC_SEND_LIMIT` as `kg_mcu`), the same `RTC_A` / `RTC_DI` / `RTC_DO` / `RTC_CS` / `RTC_WR_N`; prj adds `mcu/kg_l2_rtc.v` | none (a write of the CPU is not taken while `BUSY`, as v1) |
+   | `MATRIX_CMD` / `_WR`, `DEBUG_ADDR` / `_DATA` | `ENABLE_AUX(1)`: the same ports, the same frames (`audio_peaks.v`, the matrix CTL / PIXEL / BITPLAN); prj adds `mcu/kg_l2_aux.v` | none |
 
    The bytes of a load come at most every 250 ns (32 MHz sck), one `LD_WR` each; `LD_START`
    is one clock after the size of a new file (the reset of what it loads into); `LD_END` one

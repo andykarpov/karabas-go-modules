@@ -31,6 +31,11 @@
    PORT_OUT_READY[n], its bytes to the mcu PORT_IN_DATA / PORT_IN_WR / PORT_IN_FULL, PORT_CFG[n*32
    +: 32] (port 0: the divisor DLL, DLM; port 3: bit 0 asks for the printer status),
    PORT_STAT / PORT_STAT_WR (port 3: the printer status, bit 7 BUSY). STATUS reports the mask.
+ - RTC (ENABLE_RTC): the clock registers of kg_l2_rtc as kg_mcu_rtc (RTC_A -> RTC_DO a clock
+   later, RTC_DI written with RTC_CS and !RTC_WR_N), RTC_SKIP_0D, RTC_SEND_LIMIT.
+ - AUX (ENABLE_AUX): MATRIX_CMD / MATRIX_CMD_WR, the frames of v1 (matrix CTL / PIXEL / BITPLAN,
+   the audio peaks of audio_peaks.v), DEBUG_ADDR / DEBUG_DATA; kg_l2_aux keeps them for the mcu.
+ - CAPS bits 0 (IMG), 5 (RTC), 6 (AUX) are set from ENABLE_IMG / _RTC / _AUX.
  - IMG (ENABLE_IMG): the file mounter of kg_l2_img as the sector interface of img_sdc (SDC_*,
    the drives of the cores as they are), IMG_WP, IMG_PHYS, IMG_FLUSH, FDD_CHNG; CAPS bit 0 says
    so to the mcu (bit 2: write protected images are answered).
@@ -48,6 +53,10 @@ module kg_mcu2 #(
 	parameter ENABLE_OSD = 1,     // the bitmap OSD (target 02): OSD_* to kg_l2_osd_overlay
 	parameter ENABLE_IMG = 0,     // the file mounter (target 03): SDC_*, IMG_*
 	parameter [3:0] ENABLE_PORTS = 4'b0000, // PORT (target 05): bit n = port n
+	parameter ENABLE_RTC = 0,     // RTC (target 06): RTC_*
+	parameter RTC_SKIP_0D = 1,
+	parameter RTC_SEND_LIMIT = 256,
+	parameter ENABLE_AUX = 0,     // AUX (target 07): MATRIX_CMD, DEBUG_*
 	parameter PORT_OUT_AW = 5,    // the fifos of each port: 2^AW bytes
 	parameter PORT_IN_AW = 5,
 	parameter IMG_OUT_LATENCY = 3, // kg_l2_img: clocks from SDC_BYTE_ADDR to SDC_BYTE_OUT_DATA
@@ -166,6 +175,20 @@ module kg_mcu2 #(
 	output wire [31:0] PORT_STAT,
 	output wire [3:0] PORT_STAT_WR,
 
+	// rtc (ENABLE_RTC)
+	/* verilator lint_off UNUSEDSIGNAL */ // ENABLE_RTC / ENABLE_AUX 0
+	input wire [7:0] RTC_A,
+	input wire [7:0] RTC_DI,
+	input wire RTC_CS,
+	input wire RTC_WR_N,
+	// aux (ENABLE_AUX)
+	input wire [23:0] MATRIX_CMD,
+	input wire MATRIX_CMD_WR,
+	input wire [15:0] DEBUG_ADDR,
+	input wire [15:0] DEBUG_DATA,
+	/* verilator lint_on UNUSEDSIGNAL */
+	output wire [7:0] RTC_DO,
+
 	// ft812, sd2
 	output wire FT_SPI_ON,
 	output wire FT_VGA_ON,
@@ -187,7 +210,7 @@ wire [7:0] tgt, cmd, d;
 wire [9:0] n, rq_m;
 wire spi_miso, spi_sel;
 wire [7:0] irq;
-wire [7:0] q_sys, q_hid, q_load, q_img, q_port;
+wire [7:0] q_sys, q_hid, q_load, q_img, q_port, q_rtc, q_aux;
 
 /* verilator lint_off UNUSEDSIGNAL */
 wire start_u = start; // only kg_l2_img looks at it
@@ -197,7 +220,7 @@ kg_l2_link #(.CS_FILTER(CS_FILTER)) u_link(
 	.clk(CLK),
 	.sck(MCU_SCK), .mosi(MCU_MOSI), .miso(spi_miso), .miso_en(spi_sel), .cs_n(MCU_SS),
 	.stb(stb), .start(start), .tgt(tgt), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m),
-	.q(tgt == 8'h00 ? q_sys : tgt == 8'h01 ? q_hid : tgt == 8'h03 ? q_img : tgt == 8'h04 ? q_load : tgt == 8'h05 ? q_port : 8'h00), // OSD answers nothing
+	.q(tgt == 8'h00 ? q_sys : tgt == 8'h01 ? q_hid : tgt == 8'h03 ? q_img : tgt == 8'h04 ? q_load : tgt == 8'h05 ? q_port : tgt == 8'h06 ? q_rtc : tgt == 8'h07 ? q_aux : 8'h00), // OSD answers nothing
 	.irq(irq), .int_out(MCU_INT)
 );
 
@@ -227,10 +250,12 @@ endgenerate
 
 // ---------------- targets ----------------
 
-wire irq_sys, irq_hid, irq_img, irq_port;
-assign irq = { 2'd0, irq_port, 1'b0, irq_img, 1'b0, irq_hid, irq_sys };
+wire irq_sys, irq_hid, irq_img, irq_port, irq_rtc, irq_aux;
+assign irq = { irq_aux, irq_rtc, irq_port, 1'b0, irq_img, 1'b0, irq_hid, irq_sys };
+localparam [15:0] CAPS_ALL = CAPS | (ENABLE_IMG ? 16'h0001 : 16'h0000) | (ENABLE_RTC ? 16'h0020 : 16'h0000) |
+	(ENABLE_AUX ? 16'h0040 : 16'h0000);
 
-kg_l2_sys #(.CAPS(CAPS), .PORTS({ 4'd0, ENABLE_PORTS }), .OSD_W8(ENABLE_OSD ? 8'd32 : 8'd0), .OSD_H8(ENABLE_OSD ? 8'd16 : 8'd0)) u_sys(
+kg_l2_sys #(.CAPS(CAPS_ALL), .PORTS({ 4'd0, ENABLE_PORTS }), .OSD_W8(ENABLE_OSD ? 8'd32 : 8'd0), .OSD_H8(ENABLE_OSD ? 8'd16 : 8'd0)) u_sys(
 	.clk(CLK), .reset(~N_RESET),
 	.sel(tgt == 8'h00), .stb(stb), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m), .q(q_sys),
 	.pending(irq), .irq(irq_sys),
@@ -343,6 +368,34 @@ generate
 endgenerate
 assign q_port = q_ports[7:0] | q_ports[15:8] | q_ports[23:16] | q_ports[31:24];
 assign irq_port = |irq_ports;
+
+generate
+	if (ENABLE_RTC) begin : kg_mcu2_rtc_on
+		kg_l2_rtc #(.SKIP_0D(RTC_SKIP_0D), .SEND_LIMIT(RTC_SEND_LIMIT)) u_rtc(
+			.clk(CLK),
+			.sel(tgt == 8'h06), .stb(stb), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m),
+			.q(q_rtc), .irq(irq_rtc), .busy(BUSY),
+			.rtc_a(RTC_A), .rtc_di(RTC_DI), .rtc_do(RTC_DO), .rtc_cs(RTC_CS), .rtc_wr_n(RTC_WR_N)
+		);
+	end
+	else begin : kg_mcu2_rtc_off
+		assign q_rtc = 8'h00;
+		assign irq_rtc = 1'b0;
+		assign RTC_DO = 8'h00;
+	end
+	if (ENABLE_AUX) begin : kg_mcu2_aux_on
+		kg_l2_aux u_aux(
+			.clk(CLK),
+			.sel(tgt == 8'h07), .cmd(cmd), .rq(rq), .rq_m(rq_m), .q(q_aux), .irq(irq_aux),
+			.matrix_cmd(MATRIX_CMD), .matrix_cmd_wr(MATRIX_CMD_WR),
+			.debug_addr(DEBUG_ADDR), .debug_data(DEBUG_DATA)
+		);
+	end
+	else begin : kg_mcu2_aux_off
+		assign q_aux = 8'h00;
+		assign irq_aux = 1'b0;
+	end
+endgenerate
 
 kg_l2_load u_load(
 	.clk(CLK),
