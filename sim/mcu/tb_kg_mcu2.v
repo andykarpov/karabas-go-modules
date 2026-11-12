@@ -67,6 +67,8 @@ kg_mcu2 #(.CAPS(16'h0210)) dut(
 	.LD_READY(ld_ready),
 	.SDC_RD(8'd0), .SDC_WR(8'd0), .SDC_SECTOR(32'd0), .SDC_BYTE_OUT_DATA(8'd0),
 	.FDD_CHNG_REQ(1'b0), .FDD_CHNG_DS(2'd0),
+	.PORT_OUT_DATA(), .PORT_OUT_WR(), .PORT_OUT_READY(4'd0), .PORT_IN_DATA(32'd0), .PORT_IN_WR(4'd0),
+	.PORT_IN_FULL(), .PORT_CFG(128'd0), .PORT_STAT(), .PORT_STAT_WR(),
 	.FT_SPI_ON(ft_spi_on), .FT_VGA_ON(ft_vga_on), .FT_RESET(ft_reset),
 	.FT_SCK(), .FT_MOSI(), .FT_MISO(1'b1), .FT_CS_N(),
 	.SD2_SCK(), .SD2_MOSI(), .SD2_MISO(1'b1), .SD2_CS_N()

@@ -26,6 +26,11 @@
  - OSD (ENABLE_OSD): OSD_* of kg_l2_osd to kg_l2_osd_overlay (the bitmap and the drawing, in the
    video clock); STATUS reports 256 x 128 then.
  - LOAD: LD_* of kg_l2_load (ROMs, file loader, FL items on one bus), LD_READY from the core.
+ - PORT (ENABLE_PORTS, bit n = port n: 0 USB serial, 1 ESP8266, 2 MIDI IN, 3 USB printer): one
+   kg_l2_port each, its bytes for the core on PORT_OUT_DATA[n*8 +: 8] with PORT_OUT_WR[n] while
+   PORT_OUT_READY[n], its bytes to the mcu PORT_IN_DATA / PORT_IN_WR / PORT_IN_FULL, PORT_CFG[n*32
+   +: 32] (port 0: the divisor DLL, DLM; port 3: bit 0 asks for the printer status),
+   PORT_STAT / PORT_STAT_WR (port 3: the printer status, bit 7 BUSY). STATUS reports the mask.
  - IMG (ENABLE_IMG): the file mounter of kg_l2_img as the sector interface of img_sdc (SDC_*,
    the drives of the cores as they are), IMG_WP, IMG_PHYS, IMG_FLUSH, FDD_CHNG; CAPS bit 0 says
    so to the mcu (bit 2: write protected images are answered).
@@ -42,6 +47,9 @@ module kg_mcu2 #(
 	parameter CS_FILTER = 3,
 	parameter ENABLE_OSD = 1,     // the bitmap OSD (target 02): OSD_* to kg_l2_osd_overlay
 	parameter ENABLE_IMG = 0,     // the file mounter (target 03): SDC_*, IMG_*
+	parameter [3:0] ENABLE_PORTS = 4'b0000, // PORT (target 05): bit n = port n
+	parameter PORT_OUT_AW = 5,    // the fifos of each port: 2^AW bytes
+	parameter PORT_IN_AW = 5,
 	parameter IMG_OUT_LATENCY = 3, // kg_l2_img: clocks from SDC_BYTE_ADDR to SDC_BYTE_OUT_DATA
 	parameter ENABLE_FT = 1,
 	parameter ENABLE_SD2 = 1
@@ -145,6 +153,19 @@ module kg_mcu2 #(
 	/* verilator lint_on UNUSEDSIGNAL */
 	output wire IMG_ACTIVE,
 
+	// port (ENABLE_PORTS): port n in bits [n*8 +: 8], [n]
+	output wire [31:0] PORT_OUT_DATA,
+	output wire [3:0] PORT_OUT_WR,
+	/* verilator lint_off UNUSEDSIGNAL */ // the ports not enabled
+	input wire [3:0] PORT_OUT_READY,
+	input wire [31:0] PORT_IN_DATA,
+	input wire [3:0] PORT_IN_WR,
+	input wire [127:0] PORT_CFG,
+	/* verilator lint_on UNUSEDSIGNAL */
+	output wire [3:0] PORT_IN_FULL,
+	output wire [31:0] PORT_STAT,
+	output wire [3:0] PORT_STAT_WR,
+
 	// ft812, sd2
 	output wire FT_SPI_ON,
 	output wire FT_VGA_ON,
@@ -166,7 +187,7 @@ wire [7:0] tgt, cmd, d;
 wire [9:0] n, rq_m;
 wire spi_miso, spi_sel;
 wire [7:0] irq;
-wire [7:0] q_sys, q_hid, q_load, q_img;
+wire [7:0] q_sys, q_hid, q_load, q_img, q_port;
 
 /* verilator lint_off UNUSEDSIGNAL */
 wire start_u = start; // only kg_l2_img looks at it
@@ -176,7 +197,7 @@ kg_l2_link #(.CS_FILTER(CS_FILTER)) u_link(
 	.clk(CLK),
 	.sck(MCU_SCK), .mosi(MCU_MOSI), .miso(spi_miso), .miso_en(spi_sel), .cs_n(MCU_SS),
 	.stb(stb), .start(start), .tgt(tgt), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m),
-	.q(tgt == 8'h00 ? q_sys : tgt == 8'h01 ? q_hid : tgt == 8'h03 ? q_img : tgt == 8'h04 ? q_load : 8'h00), // OSD answers nothing
+	.q(tgt == 8'h00 ? q_sys : tgt == 8'h01 ? q_hid : tgt == 8'h03 ? q_img : tgt == 8'h04 ? q_load : tgt == 8'h05 ? q_port : 8'h00), // OSD answers nothing
 	.irq(irq), .int_out(MCU_INT)
 );
 
@@ -206,10 +227,10 @@ endgenerate
 
 // ---------------- targets ----------------
 
-wire irq_sys, irq_hid, irq_img;
-assign irq = { 4'd0, irq_img, 1'b0, irq_hid, irq_sys };
+wire irq_sys, irq_hid, irq_img, irq_port;
+assign irq = { 2'd0, irq_port, 1'b0, irq_img, 1'b0, irq_hid, irq_sys };
 
-kg_l2_sys #(.CAPS(CAPS), .OSD_W8(ENABLE_OSD ? 8'd32 : 8'd0), .OSD_H8(ENABLE_OSD ? 8'd16 : 8'd0)) u_sys(
+kg_l2_sys #(.CAPS(CAPS), .PORTS({ 4'd0, ENABLE_PORTS }), .OSD_W8(ENABLE_OSD ? 8'd32 : 8'd0), .OSD_H8(ENABLE_OSD ? 8'd16 : 8'd0)) u_sys(
 	.clk(CLK), .reset(~N_RESET),
 	.sel(tgt == 8'h00), .stb(stb), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m), .q(q_sys),
 	.pending(irq), .irq(irq_sys),
@@ -294,6 +315,34 @@ generate
 		assign IMG_ACTIVE = 1'b0;
 	end
 endgenerate
+
+wire [31:0] q_ports;
+wire [3:0] irq_ports;
+generate
+	for (g = 0; g < 4; g = g + 1) begin : kg_mcu2_port
+		if (ENABLE_PORTS[g]) begin : on
+			kg_l2_port #(.INDEX(g), .OUT_AW(PORT_OUT_AW), .IN_AW(PORT_IN_AW)) u_port(
+				.clk(CLK), .reset(~N_RESET),
+				.sel(tgt == 8'h05), .stb(stb), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m),
+				.q(q_ports[g*8 +: 8]), .irq(irq_ports[g]),
+				.out_data(PORT_OUT_DATA[g*8 +: 8]), .out_wr(PORT_OUT_WR[g]), .out_ready(PORT_OUT_READY[g]),
+				.in_data(PORT_IN_DATA[g*8 +: 8]), .in_wr(PORT_IN_WR[g]), .in_full(PORT_IN_FULL[g]),
+				.cfg(PORT_CFG[g*32 +: 32]), .stat(PORT_STAT[g*8 +: 8]), .stat_wr(PORT_STAT_WR[g])
+			);
+		end
+		else begin : off
+			assign q_ports[g*8 +: 8] = 8'h00;
+			assign irq_ports[g] = 1'b0;
+			assign PORT_OUT_DATA[g*8 +: 8] = 8'h00;
+			assign PORT_OUT_WR[g] = 1'b0;
+			assign PORT_IN_FULL[g] = 1'b1;
+			assign PORT_STAT[g*8 +: 8] = 8'h00;
+			assign PORT_STAT_WR[g] = 1'b0;
+		end
+	end
+endgenerate
+assign q_port = q_ports[7:0] | q_ports[15:8] | q_ports[23:16] | q_ports[31:24];
+assign irq_port = |irq_ports;
 
 kg_l2_load u_load(
 	.clk(CLK),
