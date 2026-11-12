@@ -52,6 +52,8 @@ kg_mcu2 #(.ENABLE_OSD(0), .ENABLE_PORTS(4'b1111)) dut(
 	.PORT_OUT_DATA(out_data), .PORT_OUT_WR(out_wr), .PORT_OUT_READY(out_ready),
 	.PORT_IN_DATA(in_data), .PORT_IN_WR(in_wr), .PORT_IN_FULL(in_full), .PORT_CFG(cfg),
 	.PORT_STAT(stat), .PORT_STAT_WR(stat_wr),
+	.RTC_A(8'd0), .RTC_DI(8'd0), .RTC_DO(), .RTC_CS(1'b0), .RTC_WR_N(1'b1),
+	.MATRIX_CMD(24'd0), .MATRIX_CMD_WR(1'b0), .DEBUG_ADDR(16'd0), .DEBUG_DATA(16'd0),
 	.FT_SPI_ON(), .FT_VGA_ON(), .FT_RESET(), .FT_SCK(), .FT_MOSI(), .FT_MISO(1'b1), .FT_CS_N(),
 	.SD2_SCK(), .SD2_MOSI(), .SD2_MISO(1'b1), .SD2_CS_N()
 );
