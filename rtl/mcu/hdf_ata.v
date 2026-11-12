@@ -40,7 +40,8 @@
 module hdf_ata #(
 	parameter DEF_HEADS = 5'd16,
 	parameter DEF_SPT = 8'd63,
-	parameter SYNC_BUS = 0
+	parameter SYNC_BUS = 0,
+	parameter ENABLE_RDB = 1     // 0: no RDB in sector 0 is looked for (not an Amiga): the default geometry
 ) (
 	input wire clk,
 	input wire reset,          // power on: forgets the image
@@ -366,7 +367,7 @@ always @(posedge clk) begin
 		end
 		else
 			wd[7:0] <= sdc_byte_in_data;
-		if (geo_rd) begin
+		if (ENABLE_RDB && geo_rd) begin
 			case (sdc_byte_addr)
 				9'd0: rdb_ok <= (sdc_byte_in_data == "R");
 				9'd1: if (sdc_byte_in_data != "D") rdb_ok <= 1'b0;
@@ -447,7 +448,7 @@ always @(posedge clk) begin
 			if (sdc_done) begin
 				sdc_wait <= 1'b0;
 				geo_rd <= 1'b0;
-				if (rdb_ok && !sdc_error && rdb_cyl[31:16] == 16'd0 && rdb_cyl[15:0] != 16'd0 &&
+				if (ENABLE_RDB && rdb_ok && !sdc_error && rdb_cyl[31:16] == 16'd0 && rdb_cyl[15:0] != 16'd0 &&
 				    rdb_spt[31:8] == 24'd0 && rdb_spt[7:0] != 8'd0 &&
 				    rdb_heads[31:5] == 27'd0 && rdb_heads[4:0] != 5'd0 && rdb_heads[4:0] <= 5'd16) begin
 					id_cyl[gdev] <= rdb_cyl[15:0];
