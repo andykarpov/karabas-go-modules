@@ -24,5 +24,7 @@ jobs:
         run: sim/hdmi/run_hdmi_sim.sh
       - name: kg_mcu
         run: sim/mcu/run_kg_mcu_sim.sh
+      - name: kg_mcu2 (link v2)
+        run: sim/mcu/run_kg_mcu2_sim.sh
       - name: Verilog ports against the VHDL
         run: sim/eq/run_eq.sh --no-isim

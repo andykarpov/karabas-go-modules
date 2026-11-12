@@ -16,6 +16,7 @@ run audio/run_audio_sim.sh
 run ctl/run_ctl_sim.sh
 run hdmi/run_hdmi_sim.sh
 run mcu/run_kg_mcu_sim.sh
+run mcu/run_kg_mcu2_sim.sh
 if [ -f /opt/Xilinx/14.7/ISE_DS/settings64.sh ]; then
 	run eq/run_eq.sh
 	run mcu/run_mcu_sim.sh

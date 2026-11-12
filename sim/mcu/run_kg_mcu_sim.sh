@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 M=$(cd ../.. && pwd)
 mkdir -p ../build/kg_mcu
 cd ../build/kg_mcu
-K="$M/rtl/mem/kg_fifo.v $M/rtl/mem/kg_sdpram.v $M/rtl/mcu/kg_spi_slave.v $M/rtl/mcu/kg_burst_rx.v $(ls "$M"/rtl/mcu/kg_mcu*.v)"
+K="$M/rtl/mem/kg_fifo.v $M/rtl/mem/kg_sdpram.v $M/rtl/mcu/kg_spi_slave.v $M/rtl/mcu/kg_burst_rx.v $(ls "$M"/rtl/mcu/kg_mcu.v "$M"/rtl/mcu/kg_mcu_*.v)"
 for tb in tb_kg_mcu tb_mcu tb_img tb_bk tb_printer; do
 	iverilog -g2001 -Wall -Wno-timescale -DKG_MCU -I "$M/rtl/mcu" -o $tb.vvp "$M/sim/mcu/$tb.v" $K "$M/rtl/mcu/img_sdc.v" "$M/rtl/mcu/kg_bk_ram.v" \
 		2>&1 | grep -v -e 'warning: Port' -e 'warning: .* implicitly' || true
