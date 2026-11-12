@@ -7,7 +7,7 @@
  kg_mcu2 (target 02), kg_l2_osd_overlay draws it over an 800 x 600 picture. Checked on the
  screen: the video without OSD, the scale (2 at 800 x 600) and the centre, text and background
  pixels (alpha 1 = a half; 3 = opaque), the border, the shadow, the last pixel of the bitmap, a popup at the top with
- zoom (scale 4). Prints "tb_kg_l2_osd: 0 errors".
+ zoom (scale 4), the activity icons (mounted dim, active bright, gone after the hold). Prints "tb_kg_l2_osd: 0 errors".
 */
 
 module tb_kg_l2_osd;
@@ -106,10 +106,12 @@ wire [23:0] vid = de ? { hc[7:0], vc[7:0], 8'h80 } : 24'd0;
 
 wire [23:0] rgb_o;
 wire hs_o, vs_o, de_o;
-kg_l2_osd_overlay u_ov(
+reg [7:0] icon_on = 8'd0, icon_act = 8'd0;
+kg_l2_osd_overlay #(.ICONS_N(2), .ICON_SET(32'h00000030), .STRETCH_BITS(4)) u_ov(
 	.wclk(clk), .osd_wr(osd_wr), .osd_waddr(osd_waddr), .osd_wdata(osd_wdata), .osd_en(osd_en),
 	.osd_fg(osd_fg), .osd_bg(osd_bg), .osd_alpha(osd_alpha), .osd_px(osd_px), .osd_py(osd_py),
 	.osd_pw(osd_pw), .osd_ph(osd_ph), .osd_place(osd_place), .osd_zoom(osd_zoom),
+	.icon_on(icon_on), .icon_act(icon_act),
 	.clk(vclk), .rgb_i(vid), .hs_i(hs), .vs_i(vs), .de_i(de),
 	.rgb_o(rgb_o), .hs_o(hs_o), .vs_o(vs_o), .de_o(de_o)
 );
@@ -145,6 +147,10 @@ endfunction
 
 function [23:0] dark(input [23:0] v);
 	dark = { 1'b0, v[23:17], 1'b0, v[15:9], 1'b0, v[7:1] };
+endfunction
+
+function [23:0] dark4(input [23:0] v);
+	dark4 = { 2'b00, v[23:18], 2'b00, v[15:10], 2'b00, v[7:2] };
 endfunction
 
 integer i;
@@ -195,6 +201,22 @@ initial begin
 	tx[0] = 8'h02; tx[1] = 8'h01; tx[2] = 8'h00; packet(3);
 	frames(2);
 	check("off again", scr[172 * 800 + 144], v_at(144, 172));
+
+	// the icons: 2 of them at the top right (scale 2: 36 x 16 icon pixels at (712, 16)); icon 0
+	// the floppy, icon 1 the hard disk
+	check("no icon", scr[18 * 800 + 712], v_at(712, 18));
+	icon_on[0] = 1'b1;
+	frames(2);
+	check("icon 0 dim pixel", scr[18 * 800 + 712], 24'h909090);
+	check("icon 0 box", scr[16 * 800 + 712], dark4(v_at(712, 16)));
+	check("icon 1 hidden", scr[18 * 800 + 756], v_at(756, 18));
+	@(posedge clk); icon_act[1] = 1'b1;
+	@(posedge clk); icon_act[1] = 1'b0;
+	frames(2);
+	check("icon 1 bright", scr[18 * 800 + 756], 24'h40FF40);
+	frames(8);
+	check("icon 1 gone", scr[18 * 800 + 756], v_at(756, 18));
+	check("icon 0 still", scr[18 * 800 + 712], 24'h909090);
 
 	$display("tb_kg_l2_osd: %0d errors", errors);
 	$finish;

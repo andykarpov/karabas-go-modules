@@ -16,12 +16,22 @@
  - Text pixels are osd_fg, the rest of the OSD and a border of 2 OSD pixels are osd_bg blended
    over the video by osd_alpha (0 none, 1 a half, 2 three quarters, 3 opaque); a shadow of 4 OSD pixels to the
    right and below darkens the video.
+ - Activity icons (ICONS_N of them, 0..8): a row of 16 x 16 pictures in a corner of the area
+   (ICON_CORNER), at the scale of the OSD, under it. Icon n has the picture ICON_SET[n*4 +: 4]
+   (0 floppy, 1 SD card, 2 CF card, 3 hard disk, 4 tape), is shown dim on a darkened box while
+   icon_on[n] (mounted) and bright while it is active: icon_act[n] (wclk, a pulse is enough) is
+   held 2^STRETCH_BITS clocks of wclk and then ICON_HOLD frames.
  - Latency: 2 clocks; hs_o / vs_o / de_o come with rgb_o. The settings are taken at the start
    of a frame (the multi-bit values cross from the link clock while they are stable).
 */
 
 module kg_l2_osd_overlay #(
-	parameter SCALE = 0   // 0 = from the size of the area
+	parameter SCALE = 0,                    // 0 = from the size of the area
+	parameter ICONS_N = 0,                  // the activity icons (0..8)
+	parameter [31:0] ICON_SET = 32'h76543210, // the picture of icon n in bits n*4 +: 4
+	parameter ICON_CORNER = 0,              // 0 top right, 1 top left, 2 bottom right, 3 bottom left
+	parameter STRETCH_BITS = 18,            // activity held 2^n clocks of wclk (2^18 at 28 MHz: 9 ms)
+	parameter ICON_HOLD = 6                 // then this many frames
 ) (
 	// the link side (kg_mcu2 OSD_*)
 	input wire wclk,
@@ -38,6 +48,10 @@ module kg_l2_osd_overlay #(
 	input wire [4:0] osd_ph,
 	input wire [1:0] osd_place,
 	input wire osd_zoom,
+	/* verilator lint_off UNUSEDSIGNAL */ // the icons past ICONS_N
+	input wire [7:0] icon_on,     // wclk: the icon is shown (dim)
+	input wire [7:0] icon_act,    // wclk: activity (bright)
+	/* verilator lint_on UNUSEDSIGNAL */
 
 	// the video
 	input wire clk,
@@ -222,6 +236,204 @@ always @(posedge clk) begin
 	de1 <= de_i;
 end
 
+// ---------------- the activity icons ----------------
+
+// the pictures: row y of icon i (bit 15 = the left pixel)
+function [15:0] icon_row(input [7:0] a);
+	case (a)
+		// 0 FDD
+		8'd0: icon_row = 16'h0000;
+		8'd1: icon_row = 16'hFFF8;
+		8'd2: icon_row = 16'hF01C;
+		8'd3: icon_row = 16'hF05E;
+		8'd4: icon_row = 16'hF05E;
+		8'd5: icon_row = 16'hF01E;
+		8'd6: icon_row = 16'hFFFE;
+		8'd7: icon_row = 16'hFFFE;
+		8'd8: icon_row = 16'hFFFE;
+		8'd9: icon_row = 16'hFFFE;
+		8'd10: icon_row = 16'hE00E;
+		8'd11: icon_row = 16'hEFEE;
+		8'd12: icon_row = 16'hE00E;
+		8'd13: icon_row = 16'hEFEE;
+		8'd14: icon_row = 16'hE00E;
+		8'd15: icon_row = 16'hFFFE;
+		// 1 SD
+		8'd16: icon_row = 16'h0000;
+		8'd17: icon_row = 16'h1FFE;
+		8'd18: icon_row = 16'h3926;
+		8'd19: icon_row = 16'h6926;
+		8'd20: icon_row = 16'hC926;
+		8'd21: icon_row = 16'hCFFE;
+		8'd22: icon_row = 16'hFFFE;
+		8'd23: icon_row = 16'hC10E;
+		8'd24: icon_row = 16'hCF36;
+		8'd25: icon_row = 16'hC136;
+		8'd26: icon_row = 16'hF936;
+		8'd27: icon_row = 16'hC10E;
+		8'd28: icon_row = 16'hFFFE;
+		8'd29: icon_row = 16'hC006;
+		8'd30: icon_row = 16'hFFFE;
+		8'd31: icon_row = 16'hFFFE;
+		// 2 CF
+		8'd32: icon_row = 16'h0000;
+		8'd33: icon_row = 16'h7FFC;
+		8'd34: icon_row = 16'hFFFE;
+		8'd35: icon_row = 16'hC106;
+		8'd36: icon_row = 16'hCF3E;
+		8'd37: icon_row = 16'hCF0E;
+		8'd38: icon_row = 16'hCF3E;
+		8'd39: icon_row = 16'hC13E;
+		8'd40: icon_row = 16'hFFFE;
+		8'd41: icon_row = 16'hC006;
+		8'd42: icon_row = 16'hFFFE;
+		8'd43: icon_row = 16'hD556;
+		8'd44: icon_row = 16'hFFFE;
+		8'd45: icon_row = 16'hD556;
+		8'd46: icon_row = 16'hFFFE;
+		8'd47: icon_row = 16'h7FFC;
+		// 3 HDD
+		8'd48: icon_row = 16'h0000;
+		8'd49: icon_row = 16'h3FFC;
+		8'd50: icon_row = 16'h4002;
+		8'd51: icon_row = 16'h4FF2;
+		8'd52: icon_row = 16'h500A;
+		8'd53: icon_row = 16'h518A;
+		8'd54: icon_row = 16'h524A;
+		8'd55: icon_row = 16'h518A;
+		8'd56: icon_row = 16'h502A;
+		8'd57: icon_row = 16'h4F92;
+		8'd58: icon_row = 16'h4012;
+		8'd59: icon_row = 16'h4002;
+		8'd60: icon_row = 16'h583A;
+		8'd61: icon_row = 16'h4002;
+		8'd62: icon_row = 16'h3FFC;
+		8'd63: icon_row = 16'h0000;
+		// 4 TAPE
+		8'd64: icon_row = 16'h0000;
+		8'd65: icon_row = 16'h0000;
+		8'd66: icon_row = 16'h7FFE;
+		8'd67: icon_row = 16'h4002;
+		8'd68: icon_row = 16'h5FFA;
+		8'd69: icon_row = 16'h524A;
+		8'd70: icon_row = 16'h55AA;
+		8'd71: icon_row = 16'h524A;
+		8'd72: icon_row = 16'h5FFA;
+		8'd73: icon_row = 16'h4002;
+		8'd74: icon_row = 16'h47E2;
+		8'd75: icon_row = 16'h4812;
+		8'd76: icon_row = 16'h7FFE;
+		8'd77: icon_row = 16'h0000;
+		8'd78: icon_row = 16'h0000;
+		8'd79: icon_row = 16'h0000;
+		default: icon_row = 16'h0000;
+	endcase
+endfunction
+
+// activity in wclk: a pulse held 2^STRETCH_BITS clocks
+reg [7:0] act_lvl = 8'd0;
+genvar gi;
+generate
+	for (gi = 0; gi < 8; gi = gi + 1) begin : kg_l2_icon_act
+		reg [STRETCH_BITS-1:0] cnt = {STRETCH_BITS{1'b0}};
+		always @(posedge wclk) begin
+			if (icon_act[gi])
+				cnt <= {STRETCH_BITS{1'b1}};
+			else if (cnt != 0)
+				cnt <= cnt - 1'b1;
+			act_lvl[gi] <= cnt != 0 || icon_act[gi];
+		end
+	end
+endgenerate
+
+// into the video clock, then held ICON_HOLD frames
+reg [7:0] on_s1 = 8'd0, on_s = 8'd0, act_s1 = 8'd0, act_s = 8'd0;
+reg [7:0] lit = 8'd0;
+reg [2:0] hold [0:7];
+integer hi;
+initial for (hi = 0; hi < 8; hi = hi + 1) hold[hi] = 3'd0;
+always @(posedge clk) begin
+	on_s1 <= icon_on;
+	on_s <= on_s1;
+	act_s1 <= act_lvl;
+	act_s <= act_s1;
+	for (hi = 0; hi < 8; hi = hi + 1) begin
+		if (act_s[hi])
+			hold[hi] <= ICON_HOLD[2:0];
+		else if (frame_start && hold[hi] != 3'd0)
+			hold[hi] <= hold[hi] - 3'd1;
+		lit[hi] <= act_s[hi] || hold[hi] != 3'd0;
+	end
+end
+
+// the row of icons: slots of 16 + 4 icon pixels, 8 icon pixels from the edges of the area
+localparam IW = (ICONS_N > 0) ? ICONS_N * 20 - 4 : 0;
+reg [3:0] si = 4'd2;
+reg signed [13:0] ix0 = 14'sd0, iy0 = 14'sd0;
+reg [12:0] iW = 13'd0, iH = 13'd0;
+wire [12:0] iW_n = IW * s_auto;
+wire [12:0] iH_n = 16 * s_auto;
+wire signed [13:0] im = $signed({ 7'd0, s_auto, 3'b000 });
+always @(posedge clk)
+	if (frame_start) begin
+		si <= s_auto;
+		iW <= iW_n;
+		iH <= iH_n;
+		ix0 <= (ICON_CORNER == 1 || ICON_CORNER == 3) ? im : $signed({ 2'b00, aw }) - $signed({ 1'b0, iW_n }) - im;
+		iy0 <= (ICON_CORNER < 2) ? im : $signed({ 2'b00, ah }) - $signed({ 1'b0, iH_n }) - im;
+	end
+
+wire ic_x = xs >= ix0 && xs < ix0 + $signed({ 1'b0, iW });
+wire ic_y = ys >= iy0 && ys < iy0 + $signed({ 1'b0, iH });
+reg [3:0] ihsub = 4'd0, ivsub = 4'd0;
+reg [4:0] ipx = 5'd0;     // the pixel in the slot (0..19)
+reg [2:0] islot = 3'd0;
+reg [3:0] ipy = 4'd0;
+always @(posedge clk) begin
+	if (line_start) begin
+		ihsub <= 4'd0;
+		ipx <= 5'd0;
+		islot <= 3'd0;
+	end
+	else if (de_i && ic_x) begin
+		if (ihsub == si - 1'b1) begin
+			ihsub <= 4'd0;
+			if (ipx == 5'd19) begin
+				ipx <= 5'd0;
+				islot <= islot + 1'b1;
+			end
+			else
+				ipx <= ipx + 1'b1;
+		end
+		else
+			ihsub <= ihsub + 1'b1;
+	end
+	if (frame_start) begin
+		ivsub <= 4'd0;
+		ipy <= 4'd0;
+	end
+	else if (line_end && ic_y) begin
+		if (ivsub == si - 1'b1) begin
+			ivsub <= 4'd0;
+			ipy <= ipy + 1'b1;
+		end
+		else
+			ivsub <= ivsub + 1'b1;
+	end
+end
+
+wire [3:0] ic_id = ICON_SET[{ islot, 2'b00 } +: 4];
+wire [15:0] ic_row = icon_row({ ic_id, ipy });
+wire ic_in = (ICONS_N > 0) && de_i && ic_x && ic_y && ipx < 5'd16 && { 1'b0, islot } < ICONS_N[3:0] &&
+             (on_s[islot] || lit[islot]);
+
+reg k_ibox = 1'b0, k_ipix = 1'b0, k_ilit = 1'b0;
+always @(posedge clk) begin
+	k_ibox <= ic_in;
+	k_ipix <= ic_in && ic_row[4'd15 - ipx[3:0]];
+	k_ilit <= lit[islot];
+end
+
 // the background over the video, per channel
 /* verilator lint_off UNUSEDSIGNAL */
 function [7:0] blend(input [7:0] o, input [7:0] v, input [1:0] a);
@@ -245,6 +457,10 @@ always @(posedge clk) begin
 		rgb_o <= fg;
 	else if (k_border)
 		rgb_o <= { blend(bg[23:16], rgb1[23:16], alpha), blend(bg[15:8], rgb1[15:8], alpha), blend(bg[7:0], rgb1[7:0], alpha) };
+	else if (k_ipix)
+		rgb_o <= k_ilit ? 24'h40FF40 : 24'h909090; // active bright green, mounted grey
+	else if (k_ibox)
+		rgb_o <= { 2'b00, rgb1[23:18], 2'b00, rgb1[15:10], 2'b00, rgb1[7:2] }; // a dark box
 	else if (k_shadow)
 		rgb_o <= { 1'b0, rgb1[23:17], 1'b0, rgb1[15:9], 1'b0, rgb1[7:1] };
 	else
