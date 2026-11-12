@@ -5,6 +5,12 @@ karabas-go-firmware `docs/link_v2.md` (section 11: every v1 scheme and its v2 fo
 is `rtl/mcu/kg_mcu2.v` here. The first core moved was vic20 (Mini G, Ф2, karabas-go-core-vic20
 branch `link-v2`): use its `src/rtl/karabas_minig_top.v` as the example.
 
+**Status: preview.** Link v2 works with the firmware of its branch `link-v2` (not released yet;
+the released firmware runs v1 cores only and does not load a `"link": 2` board). The protocol and
+these modules may still change until the firmware release (the Go / Mini boards are not moved
+yet): follow the changes of the spec and of this guide. Cores moved so far (Mini G): vic20, the
+boot menu (core-menu), macplus, profi, tsconf, baseconf: their `link-v2` branches are examples.
+
 ## Before you start
 
 - **Branches.** Everything of link v2 goes into the `link-v2` branch of each repo (firmware,
