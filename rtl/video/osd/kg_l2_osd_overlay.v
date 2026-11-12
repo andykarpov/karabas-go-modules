@@ -142,12 +142,14 @@ wire [3:0] s_auto = (SCALE != 0) ? SCALE[3:0] :
 	(aw >= 12'd512 && ah >= 12'd256) ? 4'd2 : 4'd1;
 wire [8:0] ww_n = popup_now ? { pw_v, 3'b000 } : 9'd256;
 wire [8:0] wh_n = popup_now ? { 1'b0, ph_v, 3'b000 } : 9'd128;
-wire [12:0] W2 = ww_n * { s_auto, 1'b0 };
-wire [12:0] H2 = wh_n * { s_auto, 1'b0 };
+wire [12:0] W1 = ww_n * s_auto;
+wire [12:0] H1 = wh_n * s_auto;
+wire [12:0] W2 = { W1[11:0], 1'b0 };
+wire [12:0] H2 = { H1[11:0], 1'b0 };
 wire zoom_fits = popup_now && zoom_v && W2 <= { 1'b0, aw } && H2 <= { 1'b0, ah };
 wire [3:0] s_n = zoom_fits ? { s_auto[2:0], 1'b0 } : s_auto;
-wire [12:0] W_n = ww_n * s_n;
-wire [12:0] H_n = wh_n * s_n;
+wire [12:0] W_n = zoom_fits ? W2 : W1;
+wire [12:0] H_n = zoom_fits ? H2 : H1;
 wire signed [13:0] margin = $signed({ 7'd0, s_n, 3'b000 }); // 8 OSD pixels from the top / bottom
 
 always @(posedge clk)
@@ -167,21 +169,37 @@ always @(posedge clk)
 		alpha <= alpha_v;
 	end
 
+// the far edges of the border and of the shadow, a clock after the start of the frame
+reg frame_start_d = 1'b0;
+reg signed [13:0] Wb = 14'sd0, W3 = 14'sd0, Hb = 14'sd0, H3 = 14'sd0;
+always @(posedge clk) begin
+	frame_start_d <= frame_start;
+	if (frame_start_d) begin
+		Wb <= $signed({ 1'b0, W }) + $signed({ 9'd0, s, 1'b0 });
+		W3 <= $signed({ 1'b0, W }) + $signed({ 9'd0, s, 1'b0 }) + $signed({ 8'd0, s, 2'b00 });
+		Hb <= $signed({ 1'b0, H }) + $signed({ 9'd0, s, 1'b0 });
+		H3 <= $signed({ 1'b0, H }) + $signed({ 9'd0, s, 1'b0 }) + $signed({ 8'd0, s, 2'b00 });
+	end
+end
+
 // ---------------- the OSD pixel of the screen pixel ----------------
 
 wire signed [13:0] xs = $signed({ 2'b00, x });
 wire signed [13:0] ys = $signed({ 2'b00, y });
 wire signed [13:0] Ws = $signed({ 1'b0, W });
 wire signed [13:0] Hs = $signed({ 1'b0, H });
-wire signed [13:0] b = $signed({ 9'd0, s, 1'b0 });   // the border: 2 OSD pixels
-wire signed [13:0] sh = $signed({ 8'd0, s, 2'b00 }); // the shadow: 4
+wire signed [13:0] b = $signed({ 9'd0, s, 1'b0 });   // the border: 2 OSD pixels (the shadow: 4 more)
 
-wire in_x = xs >= x0 && xs < x0 + Ws;
-wire in_y = ys >= y0 && ys < y0 + Hs;
-wire bd_x = xs >= x0 - b && xs < x0 + Ws + b;
-wire bd_y = ys >= y0 - b && ys < y0 + Hs + b;
-wire sh_x = xs >= x0 - b + sh && xs < x0 + Ws + b + sh;
-wire sh_y = ys >= y0 - b + sh && ys < y0 + Hs + b + sh;
+// the pixel from the corner of the window: one subtractor per axis, the edges are constants of
+// the frame (the border from -b to W + b, the shadow from b to W + 3b)
+wire signed [13:0] ux = xs - x0;
+wire signed [13:0] uy = ys - y0;
+wire in_x = !ux[13] && ux < Ws;
+wire in_y = !uy[13] && uy < Hs;
+wire bd_x = ux >= -b && ux < Wb;
+wire bd_y = uy >= -b && uy < Hb;
+wire sh_x = ux >= b && ux < W3;
+wire sh_y = uy >= b && uy < H3;
 
 // the column / line of the bitmap: counters that step once per s screen pixels / lines
 reg [3:0] hsub = 4'd0, vsub = 4'd0;
@@ -379,8 +397,10 @@ always @(posedge clk)
 		iy0 <= (ICON_CORNER < 2) ? im : $signed({ 2'b00, ah }) - $signed({ 1'b0, iH_n }) - im;
 	end
 
-wire ic_x = xs >= ix0 && xs < ix0 + $signed({ 1'b0, iW });
-wire ic_y = ys >= iy0 && ys < iy0 + $signed({ 1'b0, iH });
+wire signed [13:0] iu = xs - ix0;
+wire signed [13:0] iv = ys - iy0;
+wire ic_x = !iu[13] && iu < $signed({ 1'b0, iW });
+wire ic_y = !iv[13] && iv < $signed({ 1'b0, iH });
 reg [3:0] ihsub = 4'd0, ivsub = 4'd0;
 reg [4:0] ipx = 5'd0;     // the pixel in the slot (0..19)
 reg [2:0] islot = 3'd0;
@@ -439,10 +459,8 @@ wire k_ipix = k_ibox && ic_row[4'd15 - k_ipx];
 function [7:0] blend(input [7:0] o, input [7:0] v, input [1:0] a);
 	reg [9:0] t; // the low 2 bits drop: a sum of 4 weights
 	begin
-		case (a)
-			2'd1: t = { 1'b0, o, 1'b0 } + { 1'b0, v, 1'b0 };                 // 2o + 2v
-			default: t = { 1'b0, o, 1'b0 } + { 2'b00, o } + { 2'b00, v };    // 3o + v
-		endcase
+		// 2o + v, then + v (a = 1: 2o + 2v) or + o (3o + v)
+		t = { 1'b0, o, 1'b0 } + { 2'b00, v } + { 2'b00, (a == 2'd1) ? v : o };
 		blend = (a == 2'd0) ? v : (a == 2'd3) ? o : t[9:2];
 	end
 endfunction
