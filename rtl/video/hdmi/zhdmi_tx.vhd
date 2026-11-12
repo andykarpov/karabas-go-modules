@@ -24,7 +24,12 @@ entity hdmi_tx is
 		SAMPLE_FREQ : integer := 32000;
 		-- Invert flags for the different TMDS channels.
 		-- Set a channel bit to 1 if the p and n outputs for that channel are swapped.
-		INVERTED_TX : std_logic_vector(3 downto 0) := "0000"
+		INVERTED_TX : std_logic_vector(3 downto 0) := "0000";
+		-- karabas: register rgb, vsync, hsync and de on clk before the encoders (one clock of latency
+		-- for all four, so the alignment in the core does not change). The OSD overlay output
+		-- (kg_osd_overlay rgb_o) is combinational: with it the overlay mux and the TMDS encoder share one
+		-- pixel clock, which fails near 99 % slices (core-sega on Mini at 65 MHz: -2.7 ns).
+		INPUT_REG : integer range 0 to 1 := 0   -- 1: registered (an integer, so that Verilog can set it)
 	);
 	port (
 		clk      : in std_logic;	-- pixel clock
@@ -64,7 +69,31 @@ architecture rtl of hdmi_tx is
 	signal vgb  : std_logic;
 	signal dgb  : std_logic;
 
+	-- the inputs, registered or not (INPUT_REG)
+	signal rgb_i   : std_logic_vector(23 downto 0);
+	signal vsync_i : std_logic;
+	signal hsync_i : std_logic;
+	signal de_i    : std_logic;
+
 begin
+	in_reg: if INPUT_REG = 1 generate
+		process(clk)
+		begin
+			if rising_edge(clk) then
+				rgb_i <= rgb;
+				vsync_i <= vsync;
+				hsync_i <= hsync;
+				de_i <= de;
+			end if;
+		end process;
+	end generate;
+	in_direct: if INPUT_REG = 0 generate
+		rgb_i <= rgb;
+		vsync_i <= vsync;
+		hsync_i <= hsync;
+		de_i <= de;
+	end generate;
+
 	tmds_d(0) <= enc_d(0) when INVERTED_TX(0) = '0' else not enc_d(0);
 	tmds_d(1) <= enc_d(1) when INVERTED_TX(1) = '0' else not enc_d(1);
 	tmds_d(2) <= enc_d(2) when INVERTED_TX(2) = '0' else not enc_d(2);
@@ -77,10 +106,10 @@ begin
 	dvi: entity work.dvi port map(
 		CLK	=> clk,
 		RESET	=> reset,
-		RGB	=> rgb,
-		HSYNC	=> hsync,
-		VSYNC	=> vsync,
-		DE		=> de,
+		RGB	=> rgb_i,
+		HSYNC	=> hsync_i,
+		VSYNC	=> vsync_i,
+		DE		=> de_i,
 		ENC_RED	=> dvi_d(2),
 		ENC_GREEN => dvi_d(1),
 		ENC_BLUE	=> dvi_d(0)
@@ -92,10 +121,10 @@ begin
 		port map (
 			clk => clk,
 			reset => reset,
-			rgb => rgb,
-			vsync => vsync,
-			hsync => hsync,
-			ide => de,
+			rgb => rgb_i,
+			vsync => vsync_i,
+			hsync => hsync_i,
+			ide => de_i,
 			audio_en => audio_en,
 			audio_l => audio_l,
 			audio_r => audio_r,
