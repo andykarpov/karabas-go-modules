@@ -31,6 +31,13 @@
  - the reply frames of img_sdc and of this module share img_q (this module owns the queue of
    kg_mcu: a core with other img_sdc requesters puts their slots on another queue).
  kg_mcu needs ENABLE_IMG 1 and ENABLE_BK 1 (caps bit 3: the firmware asks for flushes then).
+
+ LINK 2 (kg_mcu2, karabas-go-firmware docs/link_v2.md 5.4): no img_sdc and no img_q here; the
+ sectors go through the mounter of kg_mcu2 (sdc_*_i / sdc_*_o, the slot SLOT: busy, done and the
+ bytes are taken while sdc_slot_i is SLOT), the mount request and the flush answer are the
+ bk_mount / bk_flushed pulses to its BK_* inputs (IMG EVENT kinds 4 and 3), the flush comes on
+ img_flush (IMG_FLUSH of kg_mcu2). kg_mcu2: ENABLE_IMG 1, CAPS bit 1, IMG_OUT_LATENCY 2 for this
+ slot (the sector buffer here gives its byte two clocks after sdc_byte_addr_i).
 */
 
 module kg_bk_ram #(
@@ -40,7 +47,8 @@ module kg_bk_ram #(
 	parameter MOUNT_CLOCKS = 27'd28000000, // ~1 s: no mount after CMD_BK_MOUNT, go on without a file
 	parameter GRACE_CLOCKS = 27'd280000,   // ~10 ms: a size 0 mount without a size after it, no file
 	parameter TIMEOUT = 24'd5600000,       // img_sdc: ~200 ms for an answer of the mcu
-	parameter RETRIES = 2'd3               // img_sdc
+	parameter RETRIES = 2'd3,              // img_sdc
+	parameter LINK = 1                     // the MCU link: 1 kg_mcu (img_*), 2 kg_mcu2 (sdc_*, bk_*)
 ) (
 	input wire clk,
 	input wire reset,               // a new game: back to no backup RAM (flush before it)
@@ -77,7 +85,28 @@ module kg_bk_ram #(
 	input wire [7:0] img_flush,
 	output wire img_q_wr,
 	output wire [23:0] img_q_di,
-	input wire img_q_ack
+	input wire img_q_ack,
+	// LINK 2: the mounter of kg_mcu2 (its SDC_* ports) and its BK_* inputs
+	/* verilator lint_off UNUSEDSIGNAL */ // LINK 1
+	input wire [7:0] sdc_img_mounted_i,
+	input wire [63:0] sdc_img_size_i,
+	output wire [7:0] sdc_rd_o,
+	output wire [7:0] sdc_wr_o,
+	output wire [31:0] sdc_sector_o,
+	input wire sdc_busy_i,
+	input wire sdc_done_i,
+	input wire sdc_error_i,
+	input wire [2:0] sdc_slot_i,
+	input wire sdc_byte_in_strobe_i,
+	input wire [8:0] sdc_byte_addr_i,
+	input wire [7:0] sdc_byte_in_data_i,
+	/* verilator lint_on UNUSEDSIGNAL */
+	output wire [7:0] sdc_byte_out_data_o,
+	output reg bk_mount = 1'b0,
+	output reg bk_flushed = 1'b0,
+	output wire [31:0] bk_size,
+	output wire [7:0] bk_kind,
+	output reg [7:0] bk_result = 8'd0
 );
 
 localparam [7:0] CMD_IMG_FLUSH = 8'h47;
@@ -95,7 +124,7 @@ localparam S_SWAIT = 4'd8;  // save: img_sdc takes the buffer and writes it
 localparam S_FANS = 4'd9;   // queue the flush answer
 
 reg [3:0] state = S_RUN;
-reg [6:0] bk_size = 7'd0;       // sectors of the backup RAM
+reg [6:0] bk_size_r = 7'd0;     // sectors of the backup RAM
 reg [6:0] load_n = 7'd0;        // sectors to load (the file can be shorter)
 reg [5:0] sec = 6'd0;
 reg [9:0] pos = 10'd0;
@@ -109,15 +138,19 @@ reg [63:0] dirty = 64'd0;
 reg flush_pend = 1'b0, flush_err = 1'b0;
 reg rd_req = 1'b0, wr_req = 1'b0;
 
-// own reply frames (CMD_BK_MOUNT, the flush answer); img_sdc is idle while they go out
+// own reply frames (CMD_BK_MOUNT, the flush answer); img_sdc is idle while they go out.
+// LINK 2: the bk_* pulses instead, always free
 reg own_wr = 1'b0;
 reg [23:0] own_di = 24'd0;
 wire sdc_q_wr;
 wire [23:0] sdc_q_di;
-assign img_q_wr = own_wr || sdc_q_wr;
+assign img_q_wr = LINK == 2 ? 1'b0 : own_wr || sdc_q_wr;
 assign img_q_di = own_wr ? own_di : sdc_q_di;
-wire own_ack = img_q_ack && own_wr;
+wire own_ack = LINK == 2 ? own_wr : img_q_ack && own_wr;
 wire own_free = !own_wr || own_ack;
+reg [7:0] kind_r = 8'd0;
+assign bk_size = { 25'd0, bk_size_r };
+assign bk_kind = kind_r;
 
 // ---------------- img_sdc ----------------
 
@@ -127,6 +160,7 @@ wire sdc_busy, sdc_done, sdc_error, sdc_byte_in_strobe;
 wire [8:0] sdc_byte_addr;
 wire [7:0] sdc_byte_in_data, sbuf_q;
 
+generate if (LINK == 1) begin : link1
 img_sdc #(.OUT_LATENCY(2), .TIMEOUT(TIMEOUT), .RETRIES(RETRIES)) u_sdc(
 	.clk(clk), .reset(reset),
 	.img_mounted(img_mounted), .img_size(img_size),
@@ -140,6 +174,28 @@ img_sdc #(.OUT_LATENCY(2), .TIMEOUT(TIMEOUT), .RETRIES(RETRIES)) u_sdc(
 	.sdc_byte_in_data(sdc_byte_in_data), .sdc_byte_out_data(sbuf_q),
 	.active()
 );
+	assign sdc_rd_o = 8'd0;
+	assign sdc_wr_o = 8'd0;
+	assign sdc_sector_o = 32'd0;
+	assign sdc_byte_out_data_o = 8'd0;
+end else begin : link2
+	// the mounter serves one slot at a time: its busy, done and bytes are ours while its slot is SLOT
+	wire mine = sdc_slot_i == SLOT;
+	assign sdc_img_mounted = sdc_img_mounted_i;
+	assign sdc_img_size = sdc_img_size_i;
+	assign sdc_busy = sdc_busy_i && mine;
+	assign sdc_done = sdc_done_i && mine;
+	assign sdc_error = sdc_error_i;
+	assign sdc_byte_in_strobe = sdc_byte_in_strobe_i && mine;
+	assign sdc_byte_addr = sdc_byte_addr_i;
+	assign sdc_byte_in_data = sdc_byte_in_data_i;
+	assign sdc_rd_o = {7'd0, rd_req} << SLOT;
+	assign sdc_wr_o = {7'd0, wr_req} << SLOT;
+	assign sdc_sector_o = {26'd0, sec};
+	assign sdc_byte_out_data_o = sbuf_q;
+	assign sdc_q_wr = 1'b0;
+	assign sdc_q_di = 24'd0;
+end endgenerate
 
 // sector buffer: written by img_sdc (load) or the memory port (save), read by the memory port
 // (load) or img_sdc (save: its byte two clocks after sdc_byte_addr, OUT_LATENCY 2)
@@ -168,6 +224,8 @@ end
 wire [6:0] file_secs = (|sdc_img_size[63:15]) ? 7'd64 : {1'b0, sdc_img_size[14:9]} + {6'd0, |sdc_img_size[8:0]};
 
 always @(posedge clk) begin
+	bk_mount <= 1'b0;
+	bk_flushed <= 1'b0;
 	if (own_ack)
 		own_wr <= 1'b0;
 	if (timer != 0)
@@ -195,7 +253,8 @@ always @(posedge clk) begin
 				if (dirty != 0 && age != MAX_CLOCKS)
 					age <= age + 27'd1;
 				if (start) begin
-					bk_size <= size;
+					bk_size_r <= size;
+					kind_r <= kind;
 					mounted <= 1'b0;
 					dirty <= 64'd0;
 					m <= 3'd0;
@@ -206,6 +265,10 @@ always @(posedge clk) begin
 					if (own_free) begin
 						own_wr <= 1'b1;
 						own_di <= { CMD_IMG_FLUSH, 5'd0, SLOT, flush_err ? 8'h02 : 8'h01 };
+						if (LINK == 2) begin
+							bk_flushed <= 1'b1;
+							bk_result <= flush_err ? 8'h02 : 8'h01;
+						end
 						state <= S_FANS;
 					end
 				end
@@ -226,10 +289,16 @@ always @(posedge clk) begin
 				end
 
 			S_MOUNT:
-				if (own_free) begin
+				if (LINK == 2) begin
+					bk_mount <= 1'b1;
+					timer <= MOUNT_CLOCKS;
+					grace <= 1'b0;
+					state <= S_MWAIT;
+				end
+				else if (own_free) begin
 					own_wr <= 1'b1;
 					case (m)
-						3'd0: own_di <= { CMD_BK_MOUNT, 8'h00, 1'b0, bk_size };
+						3'd0: own_di <= { CMD_BK_MOUNT, 8'h00, 1'b0, bk_size_r };
 						3'd1: own_di <= { CMD_BK_MOUNT, 8'h01, 8'h00 };
 						3'd2: own_di <= { CMD_BK_MOUNT, 8'h02, 8'h00 };
 						3'd3: own_di <= { CMD_BK_MOUNT, 8'h03, 8'h00 };
@@ -246,7 +315,7 @@ always @(posedge clk) begin
 
 			S_MWAIT:
 				if (sdc_img_mounted[SLOT] && sdc_img_size != 0) begin
-					load_n <= file_secs < bk_size ? file_secs : bk_size;
+					load_n <= file_secs < bk_size_r ? file_secs : bk_size_r;
 					sec <= 6'd0;
 					state <= S_LREQ;
 				end
@@ -340,7 +409,7 @@ always @(posedge clk) begin
 		endcase
 
 		// a write of the core: after the clear of a sector being saved, so it is saved again
-		if (wr && mounted && {1'b0, wr_addr[14:9]} < bk_size) begin
+		if (wr && mounted && {1'b0, wr_addr[14:9]} < bk_size_r) begin
 			dirty[wr_addr[14:9]] <= 1'b1;
 			idle <= IDLE_CLOCKS;
 		end

@@ -38,7 +38,9 @@
  - CAPS bits 0 (IMG), 5 (RTC), 6 (AUX) are set from ENABLE_IMG / _RTC / _AUX.
  - IMG (ENABLE_IMG): the file mounter of kg_l2_img as the sector interface of img_sdc (SDC_*,
    the drives of the cores as they are), IMG_WP, IMG_PHYS, IMG_FLUSH, FDD_CHNG; CAPS bit 0 says
-   so to the mcu (bit 2: write protected images are answered).
+   so to the mcu (bit 2: write protected images are answered). BK_*: the events of kg_bk_ram
+   (LINK 2): BK_MOUNT / BK_FLUSHED one clock with BK_SLOT, BK_SIZE, BK_KIND / BK_RESULT (CAPS bit 1:
+   the firmware sends FLUSH before it loads another game or core).
 
  Parameters: CAPS (STATUS caps, docs/link_v2.md 5.1; bit 4 = the core drives LD_READY, bit 9 =
  MIDI IN), SW_N / SW_INIT,
@@ -159,6 +161,12 @@ module kg_mcu2 #(
 	/* verilator lint_off UNUSEDSIGNAL */ // ENABLE_IMG 0
 	input wire FDD_CHNG_REQ,
 	input wire [1:0] FDD_CHNG_DS,
+	input wire BK_MOUNT,
+	input wire BK_FLUSHED,
+	input wire [2:0] BK_SLOT,
+	input wire [31:0] BK_SIZE,
+	input wire [7:0] BK_KIND,
+	input wire [7:0] BK_RESULT,
 	/* verilator lint_on UNUSEDSIGNAL */
 	output wire IMG_ACTIVE,
 
@@ -316,7 +324,10 @@ generate
 			.sdc_byte_out_data(SDC_BYTE_OUT_DATA),
 			.img_wp(IMG_WP), .img_phys_wr(IMG_PHYS_WR), .img_phys(IMG_PHYS), .img_flush(IMG_FLUSH),
 			.fdd_chng_wr(FDD_CHNG_WR), .fdd_chng(FDD_CHNG), .fdd_chng_req(FDD_CHNG_REQ),
-			.fdd_chng_ds(FDD_CHNG_DS), .active(IMG_ACTIVE)
+			.fdd_chng_ds(FDD_CHNG_DS),
+			.bk_mount(BK_MOUNT), .bk_flushed(BK_FLUSHED), .bk_slot(BK_SLOT), .bk_size(BK_SIZE),
+			.bk_kind(BK_KIND), .bk_result(BK_RESULT),
+			.active(IMG_ACTIVE)
 		);
 	end
 	else begin : kg_mcu2_img_off
