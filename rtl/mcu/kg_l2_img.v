@@ -22,6 +22,12 @@
    07 FDD_CHNG  drive, value: fdd_chng_wr one clock, fdd_chng = { drive, value } (the answer to
                 fdd_chng_req: 1 changed / no disk, 0 disk in, 2 no line)
 
+ Events of the backup RAM (kg_bk_ram with LINK 2): bk_mount (one clock, bk_slot / bk_size in
+ sectors / bk_kind) raises EVENT kind 4 (slot, size (4, LE), kind): the mcu creates or opens the
+ file and MOUNTs it in that slot; bk_flushed (one clock, bk_slot / bk_result 1 done, 2 a write
+ failed) raises kind 3 (slot, result), the answer to a FLUSH. Each waits until it is read (one of
+ a kind at a time), DSKCHG first, then the mount, the flush answer, a request.
+
  The requests (as img_sdc): one at a time, the lowest index first; sdc_busy goes up when one is
  taken and down with the sdc_done pulse at its end, sdc_slot is its index, sdc_error comes with
  sdc_done when it failed.
@@ -78,6 +84,13 @@ module kg_l2_img #(
 	input wire fdd_chng_req,
 	input wire [1:0] fdd_chng_ds,
 
+	input wire bk_mount,
+	input wire bk_flushed,
+	input wire [2:0] bk_slot,
+	input wire [31:0] bk_size,
+	input wire [7:0] bk_kind,
+	input wire [7:0] bk_result,
+
 	output wire active
 );
 
@@ -107,9 +120,16 @@ reg [15:0] wr_sum = 16'd0;
 reg dsk_pend = 1'b0;
 reg [1:0] dsk_drive = 2'd0;
 
+// the events of the backup RAM: a mount request, a flush answer
+reg bk_pend = 1'b0, fl_pend = 1'b0;
+reg [2:0] bk_slot_r = 3'd0, fl_slot_r = 3'd0;
+reg [31:0] bk_size_r = 32'd0;
+reg [7:0] bk_kind_r = 8'd0, fl_res_r = 8'd0;
+
 // the event taken by the read of byte 1 of EVENT; bytes 2.. come from here
 reg [2:0] ev_slot = 3'd0;
 reg [31:0] ev_arg = 32'd0;
+reg [7:0] ev_ext = 8'd0;     // byte 7: the file kind of a mount
 
 reg [63:0] size = 64'd0;
 reg [2:0] m_slot = 3'd0;     // the slot of a MOUNT / RDATA / WDATA / DONE packet
@@ -130,14 +150,15 @@ end
 
 assign sdc_slot = slot;
 assign active = sdc_busy;
-assign irq = dsk_pend || state == S_EV;
+assign irq = dsk_pend || bk_pend || fl_pend || state == S_EV;
 
 wire [7:0] req = sdc_rd | sdc_wr;
 wire [2:0] req_slot = req[0] ? 3'd0 : req[1] ? 3'd1 : req[2] ? 3'd2 : req[3] ? 3'd3 :
                       req[4] ? 3'd4 : req[5] ? 3'd5 : req[6] ? 3'd6 : 3'd7;
 
 // the event as byte 1 of EVENT reads it
-wire [7:0] kind_now = dsk_pend ? 8'd5 : (state == S_EV) ? (write ? 8'd2 : 8'd1) : 8'd0;
+wire [7:0] kind_now = dsk_pend ? 8'd5 : bk_pend ? 8'd4 : fl_pend ? 8'd3 :
+                      (state == S_EV) ? (write ? 8'd2 : 8'd1) : 8'd0;
 wire ev_read = sel && rq && cmd == 8'h02 && rq_m == 10'd1;
 
 // RDATA: the status answers the sum high byte that arrives in this clock (payload 514)
@@ -160,6 +181,7 @@ always @(*) begin
 					10'd4: q = ev_arg[15:8];
 					10'd5: q = ev_arg[23:16];
 					10'd6: q = ev_arg[31:24];
+					10'd7: q = ev_ext;
 					default: ;
 				endcase
 			8'h03:
@@ -215,6 +237,17 @@ always @(posedge clk) begin
 		dsk_pend <= 1'b1;
 		dsk_drive <= fdd_chng_ds;
 	end
+	if (bk_mount) begin
+		bk_pend <= 1'b1;
+		bk_slot_r <= bk_slot;
+		bk_size_r <= bk_size;
+		bk_kind_r <= bk_kind;
+	end
+	if (bk_flushed) begin
+		fl_pend <= 1'b1;
+		fl_slot_r <= bk_slot;
+		fl_res_r <= bk_result;
+	end
 
 	// ---- the packets ----
 	if (sel && start && cmd == 8'h04)
@@ -223,10 +256,22 @@ always @(posedge clk) begin
 		wbuf_ra <= rq_m[8:0] - 9'd1; // the next byte, 8 sck before it is needed
 
 	if (ev_read) begin
+		ev_ext <= 8'd0;
 		if (dsk_pend) begin
 			dsk_pend <= 1'b0;
 			ev_slot <= 3'd0;
 			ev_arg <= { 30'd0, dsk_drive };
+		end
+		else if (bk_pend) begin
+			bk_pend <= 1'b0;
+			ev_slot <= bk_slot_r;
+			ev_arg <= bk_size_r;
+			ev_ext <= bk_kind_r;
+		end
+		else if (fl_pend) begin
+			fl_pend <= 1'b0;
+			ev_slot <= fl_slot_r;
+			ev_arg <= { 24'd0, fl_res_r };
 		end
 		else if (state == S_EV) begin
 			ev_slot <= slot;
@@ -317,6 +362,8 @@ always @(posedge clk) begin
 		state <= S_IDLE;
 		sdc_busy <= 1'b0;
 		dsk_pend <= 1'b0;
+		bk_pend <= 1'b0;
+		fl_pend <= 1'b0;
 	end
 	else case (state)
 		S_IDLE:
