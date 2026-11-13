@@ -29,8 +29,10 @@
  active high).
 
  Chip select: as kg_mcu_link, cs_n goes low at once and high only after CS_FILTER clocks high.
- Clocks: a byte crosses into clk in 3 clocks, its answer is needed ~7.5 sck periods later:
- f_clk > 3.5 / (6 / f_sck) or so; 28 MHz with 32 MHz sck has margin (tb_kg_mcu2).
+ Clocks: a byte crosses into clk in 3 clocks after the falling edge that ends it, its answer is
+ needed ~7 sck periods later: f_clk > 3.5 / (5.5 / f_sck) or so; 28 MHz with 32 MHz sck has margin
+ (tb_kg_mcu2). No upper limit: until 2026-11-13 the toggle came at the rising edge of bit 7 and a
+ clk over ~4 x f_sck rewrote di before its load (bk at 65 MHz with 16 MHz sck: reads one byte early).
 */
 
 module kg_l2_link #(
@@ -82,10 +84,10 @@ reg [7:0] di = 8'h00; // the answer for the next byte
 
 // ---------------- sck domain ----------------
 //
-// Receive: bits on the rising edge, a whole byte into byte_hold with a toggle (the byte holds for
-// the next 8 sck periods). Transmit: the falling edge after the last bit of a byte loads di (the
-// answer for the next byte), the other falling edges shift. di is written by the clk side two
-// or more clocks after the byte before the last one, so it is stable at that edge.
+// Receive: bits on the rising edge, a whole byte into byte_hold (it holds for the next 8 sck
+// periods). Transmit: the falling edge after the last bit of a byte loads di (the answer for the
+// next byte) and toggles byte_tgl, the other falling edges shift. The clk side sees the byte by
+// that toggle, so it writes di only after the load: no upper limit of clk against sck.
 
 /* verilator lint_off SYNCASYNCNET */
 reg [2:0] bitcnt = 3'd0;
@@ -108,19 +110,25 @@ always @(negedge sck or posedge cs_n_f)
 		txsh <= { txsh[6:0], 1'b0 };
 		first <= 1'b0;
 	end
+
+// the end of a byte for the clk side: toggled at the same falling edge that loads di, so the clk
+// side (which writes the next answer into di when it sees the byte) can never change di before
+// that load, however fast clk is against sck (it toggled at the rising edge of bit 7 before: a clk
+// over ~4 x sck wrote di within the half period and the answer of the next position went out)
+reg byte_tgl = 1'b0;
+always @(negedge sck)
+	if (!cs_n_f && bitcnt == 3'd0 && !first)
+		byte_tgl <= ~byte_tgl;
 /* verilator lint_on SYNCASYNCNET */
 assign miso = txsh[7];
 
 reg [6:0] shreg = 7'd0;
 reg [7:0] byte_hold = 8'd0;
-reg byte_tgl = 1'b0;
 always @(posedge sck)
 	if (!cs_n_f) begin
 		shreg <= { shreg[5:0], mosi };
-		if (bitcnt == 3'd7) begin
+		if (bitcnt == 3'd7)
 			byte_hold <= { shreg, mosi };
-			byte_tgl <= ~byte_tgl;
-		end
 	end
 
 // ---------------- clk domain ----------------
