@@ -49,3 +49,10 @@ iverilog -g2001 -Wall -Wno-timescale -o tb_kg_l2_osd.vvp "$M/sim/video/tb_kg_l2_
 vvp -n tb_kg_l2_osd.vvp > tb_kg_l2_osd.log
 grep -E "ERROR|tb_kg_l2_osd:" tb_kg_l2_osd.log | sed "s/^/kg_l2_osd: /"
 grep -q "tb_kg_l2_osd: 0 errors" tb_kg_l2_osd.log
+
+# the activity icons in a column at the right edge, no box (kg_l2_osd_overlay alone, a few seconds)
+iverilog -g2001 -Wall -Wno-timescale -o tb_kg_l2_osd_icons.vvp "$M/sim/video/tb_kg_l2_osd_icons.v" \
+	"$M/rtl/video/osd/kg_l2_osd_overlay.v" "$M/rtl/mem/kg_sdpram.v" 2>&1 | grep -v -e 'warning: Port' -e 'warning: .* implicitly' || true
+vvp -n tb_kg_l2_osd_icons.vvp > tb_kg_l2_osd_icons.log
+grep -E "ERROR|tb_kg_l2_osd_icons:" tb_kg_l2_osd_icons.log | sed "s/^/kg_l2_osd_icons: /"
+grep -q "tb_kg_l2_osd_icons: 0 errors" tb_kg_l2_osd_icons.log

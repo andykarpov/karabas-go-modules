@@ -16,10 +16,12 @@
  - Text pixels are osd_fg, the rest of the OSD and a border of 2 OSD pixels are osd_bg blended
    over the video by osd_alpha (0 none, 1 a half, 2 three quarters, 3 opaque); a shadow of 4 OSD pixels to the
    right and below darkens the video.
- - Activity icons (ICONS_N of them, 0..8): a row of 16 x 16 pictures in a corner of the area
-   (ICON_CORNER), at the scale of the OSD, under it. Icon n has the picture ICON_SET[n*4 +: 4]
-   (0 floppy, 1 SD card, 2 CF card, 3 hard disk, 4 tape), is shown dim on a darkened box while
-   icon_on[n] (mounted) and bright while it is active: icon_act[n] (wclk, a pulse is enough) is
+ - Activity icons (ICONS_N of them, 0..8): a row (or with ICON_COLUMN a column) of 16 x 16
+   pictures in a corner of the area (ICON_CORNER), at the scale of the OSD (or ICON_SCALE), under
+   it, ICON_MARGIN screen pixels from the edges (0: 8 icon pixels). Icon n has the picture ICON_SET[n*4 +: 4]
+   (0 floppy, 1 SD card, 2 CF card, 3 hard disk, 4 tape), is shown dim (ICON_DIM) while
+   icon_on[n] (mounted) and bright (ICON_COLOR) while it is active, on a darkened box (ICON_BOX 1)
+   or with the video around its pixels (ICON_BOX 0): icon_act[n] (wclk, a pulse is enough) is
    held 2^STRETCH_BITS clocks of wclk and then ICON_HOLD frames.
  - Latency: 2 clocks; hs_o / vs_o / de_o come with rgb_o. The settings are taken at the start
    of a frame (the multi-bit values cross from the link clock while they are stable).
@@ -30,6 +32,12 @@ module kg_l2_osd_overlay #(
 	parameter ICONS_N = 0,                  // the activity icons (0..8)
 	parameter [31:0] ICON_SET = 32'h76543210, // the picture of icon n in bits n*4 +: 4
 	parameter ICON_CORNER = 0,              // 0 top right, 1 top left, 2 bottom right, 3 bottom left
+	parameter ICON_COLUMN = 0,              // 0 a row of icons, 1 a column
+	parameter ICON_SCALE = 0,               // screen pixels per icon pixel; 0 = the scale of the OSD
+	parameter ICON_MARGIN = 0,              // screen pixels from the edges; 0 = 8 icon pixels
+	parameter ICON_BOX = 1,                 // 1 a dark box behind an icon shown, 0 none
+	parameter [23:0] ICON_COLOR = 24'h40FF40, // an active icon
+	parameter [23:0] ICON_DIM = 24'h909090,   // a mounted one
 	parameter STRETCH_BITS = 18,            // activity held 2^n clocks of wclk (2^18 at 28 MHz: 9 ms)
 	parameter ICON_HOLD = 6                 // then this many frames
 ) (
@@ -380,17 +388,21 @@ always @(posedge clk) begin
 	end
 end
 
-// the row of icons: slots of 16 + 4 icon pixels, 8 icon pixels from the edges of the area
+// the row (column) of icons: slots of 16 + 4 icon pixels, ICON_MARGIN from the edges of the area
 localparam IW = (ICONS_N > 0) ? ICONS_N * 20 - 4 : 0;
 reg [3:0] si = 4'd2;
 reg signed [13:0] ix0 = 14'sd0, iy0 = 14'sd0;
 reg [12:0] iW = 13'd0, iH = 13'd0;
-wire [12:0] iW_n = IW * s_auto;
-wire [12:0] iH_n = 16 * s_auto;
-wire signed [13:0] im = $signed({ 7'd0, s_auto, 3'b000 });
+wire [3:0] s_ic = (ICON_SCALE != 0) ? ICON_SCALE[3:0] : s_auto;
+localparam [12:0] IWC = (ICON_COLUMN != 0) ? 13'd16 : IW[12:0]; // icon pixels across / down
+localparam [12:0] IHC = (ICON_COLUMN != 0) ? IW[12:0] : 13'd16;
+localparam [13:0] IMC = ICON_MARGIN[13:0];
+wire [12:0] iW_n = IWC * s_ic;
+wire [12:0] iH_n = IHC * s_ic;
+wire signed [13:0] im = (ICON_MARGIN != 0) ? $signed(IMC) : $signed({ 7'd0, s_ic, 3'b000 });
 always @(posedge clk)
 	if (frame_start) begin
-		si <= s_auto;
+		si <= s_ic;
 		iW <= iW_n;
 		iH <= iH_n;
 		ix0 <= (ICON_CORNER == 1 || ICON_CORNER == 3) ? im : $signed({ 2'b00, aw }) - $signed({ 1'b0, iW_n }) - im;
@@ -402,9 +414,10 @@ wire signed [13:0] iv = ys - iy0;
 wire ic_x = !iu[13] && iu < $signed({ 1'b0, iW });
 wire ic_y = !iv[13] && iv < $signed({ 1'b0, iH });
 reg [3:0] ihsub = 4'd0, ivsub = 4'd0;
-reg [4:0] ipx = 5'd0;     // the pixel in the slot (0..19)
-reg [2:0] islot = 3'd0;
-reg [3:0] ipy = 4'd0;
+reg [4:0] ipx = 5'd0;     // the pixel in the slot (0..19; in a column 0..15)
+reg [2:0] islot = 3'd0;   // the slot in a row
+reg [4:0] ipy = 5'd0;     // the line in the slot (0..15; in a column 0..19)
+reg [2:0] vslot = 3'd0;   // the slot in a column
 always @(posedge clk) begin
 	if (line_start) begin
 		ihsub <= 4'd0;
@@ -414,7 +427,7 @@ always @(posedge clk) begin
 	else if (de_i && ic_x) begin
 		if (ihsub == si - 1'b1) begin
 			ihsub <= 4'd0;
-			if (ipx == 5'd19) begin
+			if (ICON_COLUMN == 0 && ipx == 5'd19) begin
 				ipx <= 5'd0;
 				islot <= islot + 1'b1;
 			end
@@ -426,31 +439,38 @@ always @(posedge clk) begin
 	end
 	if (frame_start) begin
 		ivsub <= 4'd0;
-		ipy <= 4'd0;
+		ipy <= 5'd0;
+		vslot <= 3'd0;
 	end
 	else if (line_end && ic_y) begin
 		if (ivsub == si - 1'b1) begin
 			ivsub <= 4'd0;
-			ipy <= ipy + 1'b1;
+			if (ICON_COLUMN != 0 && ipy == 5'd19) begin
+				ipy <= 5'd0;
+				vslot <= vslot + 1'b1;
+			end
+			else
+				ipy <= ipy + 1'b1;
 		end
 		else
 			ivsub <= ivsub + 1'b1;
 	end
 end
 
-wire [2:0] ic_id = ICON_SET[{ islot, 2'b00 } +: 3]; // pictures 0..7
+wire [2:0] slot = (ICON_COLUMN != 0) ? vslot : islot;
+wire [2:0] ic_id = ICON_SET[{ slot, 2'b00 } +: 3]; // pictures 0..7
 reg [15:0] ic_row = 16'd0;       // the row of the pixel of stage 1, in stage 2
 always @(posedge clk)
-	ic_row <= icon_rom[{ ic_id, ipy }];
-wire ic_in = (ICONS_N > 0) && de_i && ic_x && ic_y && ipx < 5'd16 && { 1'b0, islot } < ICONS_N[3:0] &&
-             (on_s[islot] || lit[islot]);
+	ic_row <= icon_rom[{ ic_id, ipy[3:0] }];
+wire ic_in = (ICONS_N > 0) && de_i && ic_x && ic_y && ipx < 5'd16 && ipy < 5'd16 && { 1'b0, slot } < ICONS_N[3:0] &&
+             (on_s[slot] || lit[slot]);
 
 reg k_ibox = 1'b0, k_ilit = 1'b0;
 reg [3:0] k_ipx = 4'd0;
 always @(posedge clk) begin
 	k_ibox <= ic_in;
 	k_ipx <= ipx[3:0];
-	k_ilit <= lit[islot];
+	k_ilit <= lit[slot];
 end
 wire k_ipix = k_ibox && ic_row[4'd15 - k_ipx];
 
@@ -476,8 +496,8 @@ always @(posedge clk) begin
 	else if (k_border)
 		rgb_o <= { blend(bg[23:16], rgb1[23:16], alpha), blend(bg[15:8], rgb1[15:8], alpha), blend(bg[7:0], rgb1[7:0], alpha) };
 	else if (k_ipix)
-		rgb_o <= k_ilit ? 24'h40FF40 : 24'h909090; // active bright green, mounted grey
-	else if (k_ibox)
+		rgb_o <= k_ilit ? ICON_COLOR : ICON_DIM;
+	else if (ICON_BOX != 0 && k_ibox)
 		rgb_o <= { 2'b00, rgb1[23:18], 2'b00, rgb1[15:10], 2'b00, rgb1[7:2] }; // a dark box
 	else if (k_shadow)
 		rgb_o <= { 1'b0, rgb1[23:17], 1'b0, rgb1[15:9], 1'b0, rgb1[7:1] };
