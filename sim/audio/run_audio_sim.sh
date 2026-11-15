@@ -1,5 +1,5 @@
 #!/bin/bash
-# pcm5102.v and kg_pcm5102.v (tb_pcm5102.v, the I2S stream), audio_peaks.v (tb_audio_peaks.v) and
+# pcm5102.v and kg_pcm5102.v (tb_pcm5102.v, the I2S stream), audio_peaks.v (tb_audio_peaks.v), kg_tape_monitor (tb_kg_tape_monitor.v) and
 # kg_midi_tx.v (tb_midi_tx.v, the 31250 baud line), Icarus Verilog. Each prints "0 errors".
 set -e
 cd "$(dirname "$0")"
@@ -22,3 +22,7 @@ iverilog -g2001 -Wall -Wno-timescale -o tb_midi_tx.vvp "$M/sim/audio/tb_midi_tx.
 vvp -n tb_midi_tx.vvp > tb_midi_tx.log
 grep -E "ERROR|tb_midi_tx:" tb_midi_tx.log
 grep -q "tb_midi_tx: 0 errors" tb_midi_tx.log
+iverilog -g2001 -Wall -Wno-timescale -o tb_kg_tape_monitor.vvp "$M/sim/audio/tb_kg_tape_monitor.v" "$M/rtl/audio/kg_tape_monitor.v"
+vvp -n tb_kg_tape_monitor.vvp > tb_kg_tape_monitor.log
+grep -E "ERROR|tb_kg_tape_monitor:" tb_kg_tape_monitor.log
+grep -q "tb_kg_tape_monitor: 0 errors" tb_kg_tape_monitor.log
