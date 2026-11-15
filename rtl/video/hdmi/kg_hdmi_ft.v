@@ -15,7 +15,9 @@
 module kg_hdmi_ft #(
 	parameter integer SAMPLERATE = 44100,
 	parameter integer CLKRATE = 28000000, // clk_ref, Hz
-	parameter [7:0] REF_MHZ = 8'd28       // CLKRATE in MHz, as kg_freq_counter tells it
+	parameter [7:0] REF_MHZ = 8'd28,      // CLKRATE in MHz, as kg_freq_counter tells it
+	parameter integer INPUT_REG = 0,      // hdmi_tx: register rgb / syncs / de before the encoders
+	parameter integer OUTPUT_REG = 0      // hdmi_tx: register the TMDS words before the serializers
 ) (
 	input wire clk,       // FT_CLK: the FT812 video is taken on its falling edge, kg_hdmi_ft_pll measures it
 	input wire clk_ref,   // the clock of the core (CLKRATE)
@@ -173,7 +175,7 @@ always @(posedge p_clk_int) begin
 end
 
 // hdmi tx
-hdmi_tx #(.SAMPLE_FREQ(SAMPLERATE)) hdmi_tx(
+hdmi_tx #(.SAMPLE_FREQ(SAMPLERATE), .INPUT_REG(INPUT_REG), .OUTPUT_REG(OUTPUT_REG)) hdmi_tx(
 	.clk(p_clk_int),
 	.sclk(clk_hdmi),
 	.sclk_n(clk_hdmi_n),
