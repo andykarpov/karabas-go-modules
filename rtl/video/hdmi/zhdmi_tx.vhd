@@ -29,7 +29,15 @@ entity hdmi_tx is
 		-- for all four, so the alignment in the core does not change). The OSD overlay output
 		-- (kg_osd_overlay rgb_o) is combinational: with it the overlay mux and the TMDS encoder share one
 		-- pixel clock, which fails near 99 % slices (core-sega on Mini at 65 MHz: -2.7 ns).
-		INPUT_REG : integer range 0 to 1 := 0   -- 1: registered (an integer, so that Verilog can set it)
+		INPUT_REG : integer range 0 to 1 := 0;  -- 1: registered (an integer, so that Verilog can set it)
+		-- karabas: register the TMDS words of the data channels on clk before the serializers (after
+		-- the mux of the DVI / HDMI encoders by audio_en; one clock of latency, the same for the three
+		-- channels; the clock channel is a constant pattern). The serializer takes its word once in five
+		-- serial clocks but the path is timed against one of them (6.3 ns at 64 MHz): from the encoder or
+		-- audio_en it needs both to be placed close to the serializer, which fails near 99 % slices
+		-- (tsconf on Mini G, FT 64 MHz: -1.1 ns, a route of 6 ns). The register has one load and goes next
+		-- to its serializer; the encoders get the whole pixel clock.
+		OUTPUT_REG : integer range 0 to 1 := 0
 	);
 	port (
 		clk      : in std_logic;	-- pixel clock
@@ -60,6 +68,7 @@ architecture rtl of hdmi_tx is
 	signal dvi_d : tmds_d_t;
 	signal enc_d  : tmds_d_t;
 	signal tmds_div_mux_d : tmds_d_t;
+	signal ser_d : tmds_d_t;   -- the words into the serializers, registered or not (OUTPUT_REG)
 	signal clk_d  : std_logic_vector(9 downto 0);
 
 	signal data : std_logic_vector(23 downto 0);
@@ -102,6 +111,18 @@ begin
 	tmds_div_mux_d(0) <= tmds_d(0) when audio_en = '1' else dvi_d(0);
 	tmds_div_mux_d(1) <= tmds_d(1) when audio_en = '1' else dvi_d(1);
 	tmds_div_mux_d(2) <= tmds_d(2) when audio_en = '1' else dvi_d(2);
+
+	out_reg: if OUTPUT_REG = 1 generate
+		process(clk)
+		begin
+			if rising_edge(clk) then
+				ser_d <= tmds_div_mux_d;
+			end if;
+		end process;
+	end generate;
+	out_direct: if OUTPUT_REG = 0 generate
+		ser_d <= tmds_div_mux_d;
+	end generate;
 
 	dvi: entity work.dvi port map(
 		CLK	=> clk,
@@ -166,7 +187,7 @@ begin
 			sclk => sclk,
 			sclk_n => sclk_n,
 			reset => reset,
-			tmds_d => tmds_div_mux_d(i),
+			tmds_d => ser_d(i),
 			tx_d_n => tx_d_n(i),
 			tx_d_p => tx_d_p(i)
 		);

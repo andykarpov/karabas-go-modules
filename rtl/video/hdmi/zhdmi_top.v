@@ -23,6 +23,7 @@ module zhdmi_top(
 
 parameter SAMPLERATE = 32000;
 parameter INPUT_REG = 0;   // 1: hdmi_tx registers rgb / syncs / de before its encoders (see zhdmi_tx.vhd)
+parameter OUTPUT_REG = 0;  // 1: hdmi_tx registers the TMDS words before its serializers (see zhdmi_tx.vhd)
 
 // clocks
 wire clk_hdmi, clk_hdmi_n;
@@ -61,7 +62,7 @@ always @(posedge p_clk_int) begin
 end
 
 // hdmi tx
-hdmi_tx #(.SAMPLE_FREQ(SAMPLERATE), .INPUT_REG(INPUT_REG)) hdmi_tx(
+hdmi_tx #(.SAMPLE_FREQ(SAMPLERATE), .INPUT_REG(INPUT_REG), .OUTPUT_REG(OUTPUT_REG)) hdmi_tx(
 	.clk(p_clk_int),
 	.sclk(clk_hdmi),
 	.sclk_n(clk_hdmi_n),
