@@ -111,6 +111,7 @@ module kg_mcu2 #(
 	output wire [1:0] LD_KIND,
 	output wire [7:0] LD_SLOT,
 	output wire [31:0] LD_SIZE,
+	output wire [63:0] LD_EXT,   // the file extension of START (kg_l2_load ld_ext)
 	output wire LD_START,
 	output wire LD_ACTIVE,
 	output wire LD_END,
@@ -411,7 +412,7 @@ endgenerate
 kg_l2_load u_load(
 	.clk(CLK),
 	.sel(tgt == 8'h04), .stb(stb), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m), .q(q_load),
-	.ld_kind(LD_KIND), .ld_slot(LD_SLOT), .ld_size(LD_SIZE), .ld_start(LD_START),
+	.ld_kind(LD_KIND), .ld_slot(LD_SLOT), .ld_size(LD_SIZE), .ld_ext(LD_EXT), .ld_start(LD_START),
 	.ld_active(LD_ACTIVE), .ld_end(LD_END), .ld_addr(LD_ADDR), .ld_data(LD_DATA), .ld_wr(LD_WR),
 	.ld_ready(LD_READY)
 );

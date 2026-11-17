@@ -49,6 +49,7 @@ wire [15:0] joy_l, joy_r;
 wire [1:0] ld_kind;
 wire [7:0] ld_slot, ld_data;
 wire [31:0] ld_size, ld_addr;
+wire [63:0] ld_ext;
 wire ld_start, ld_active, ld_end, ld_wr;
 wire ft_spi_on, ft_vga_on, ft_reset;
 
@@ -62,7 +63,7 @@ kg_mcu2 #(.CAPS(16'h0210)) dut(
 	.KBD(kbd), .KBD_WR(kbd_wr), .PS2_CODE(ps2_code), .PS2_KIND(ps2_kind), .PS2_WR(ps2_wr),
 	.MS_X(ms_x), .MS_Y(ms_y), .MS_Z(ms_z), .MS_B(ms_b), .MS_WR(ms_wr),
 	.JOY_L(joy_l), .JOY_R(joy_r), .JOY_WR(joy_wr), .PS2_CMD(ps2_cmd), .PS2_CMD_WR(ps2_cmd_wr),
-	.LD_KIND(ld_kind), .LD_SLOT(ld_slot), .LD_SIZE(ld_size), .LD_START(ld_start),
+	.LD_KIND(ld_kind), .LD_SLOT(ld_slot), .LD_SIZE(ld_size), .LD_EXT(ld_ext), .LD_START(ld_start),
 	.LD_ACTIVE(ld_active), .LD_END(ld_end), .LD_ADDR(ld_addr), .LD_DATA(ld_data), .LD_WR(ld_wr),
 	.LD_READY(ld_ready),
 	.SDC_RD(8'd0), .SDC_WR(8'd0), .SDC_SECTOR(32'd0), .SDC_BYTE_OUT_DATA(8'd0),
@@ -282,6 +283,7 @@ initial begin
 	check("LD_SLOT", ld_slot, 7);
 	check("LD_SIZE", ld_size, 300);
 	check("LD_KIND", ld_kind, 0);
+	check("LD_EXT", ld_ext, 64'h00000000006D6F72); // "rom", byte 0 = the first char
 
 	p3(8'h04, 8'h02, 8'h00); tx[3] = 8'h00; tx[4] = 8'h10; tx[5] = 0; tx[6] = 0;
 	for (i = 0; i < 300; i = i + 1) tx[7 + i] = i * 7 + 3;

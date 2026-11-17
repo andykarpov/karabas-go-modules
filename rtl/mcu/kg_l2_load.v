@@ -16,6 +16,9 @@
               the mcu asks before each DATA packet when the core has caps bit LOAD_READY
 
  kind: 0 ROM (the core holds its cpu while ld_active), 1 file loader, 2 FL item (ioctl).
+ ld_ext: the extension of the file from START (the firmware sends the name after its last dot, as on
+ the card, up to 8 chars; none for ROMs): complete before the first DATA byte (it comes after
+ ld_start), held until the next START. MiSTer ports use it as ioctl_file_ext.
  A byte comes every 250 ns at most (32 MHz sck): a core that writes slower puts a fifo behind
  ld_wr and drops ld_ready while it fills.
 */
@@ -37,6 +40,7 @@ module kg_l2_load (
 	output reg [1:0] ld_kind = 2'd0,
 	output reg [7:0] ld_slot = 8'd0,
 	output reg [31:0] ld_size = 32'd0,
+	output reg [63:0] ld_ext = 64'd0,   // the extension of START (ASCII, byte 0 = the first char, 0 padded)
 	output reg ld_start = 1'b0,
 	output reg ld_active = 1'b0,
 	output reg ld_end = 1'b0,
@@ -65,7 +69,10 @@ always @(posedge clk) begin
 		case (cmd)
 			8'h01:
 				case (n)
-					10'd0: ld_kind <= d[1:0];
+					10'd0: begin
+						ld_kind <= d[1:0];
+						ld_ext <= 64'd0;
+					end
 					10'd1: ld_slot <= d;
 					10'd2: size[7:0] <= d;
 					10'd3: size[15:8] <= d;
@@ -76,6 +83,15 @@ always @(posedge clk) begin
 						ld_start <= 1'b1;
 						ld_active <= 1'b1;
 					end
+					// bytes 10..17: the extension, after LD_START, before the first DATA
+					10'd10: ld_ext[7:0] <= d;
+					10'd11: ld_ext[15:8] <= d;
+					10'd12: ld_ext[23:16] <= d;
+					10'd13: ld_ext[31:24] <= d;
+					10'd14: ld_ext[39:32] <= d;
+					10'd15: ld_ext[47:40] <= d;
+					10'd16: ld_ext[55:48] <= d;
+					10'd17: ld_ext[63:56] <= d;
 					default: ;
 				endcase
 			8'h02:
