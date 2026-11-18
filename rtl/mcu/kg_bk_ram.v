@@ -10,7 +10,8 @@
  game) and mounts it in an img slot, this module reads it into the memory of the core and writes
  the sectors the core changed back to it.
 
- - start (one clock) with size (sectors of 512 bytes, 1..64; 0 = the game has no backup RAM) and
+ - start (one clock) with size (sectors of 512 bytes, 1..2^SBITS, 64 with the default SBITS 6;
+   0 = the game has no backup RAM) and
    kind (0 = .sav): CMD_BK_MOUNT to the mcu: 48 00..03 size (LE), 48 10 SLOT, 48 80 kind;
  - the mcu mounts the file in SLOT (IMG_SLOT / IMG_SIZE, size 0 first): its sectors (at most size,
    a shorter file only its own) are read through img_sdc and copied to the memory port; busy holds
@@ -18,6 +19,9 @@
    MOUNT_CLOCKS (a firmware without the command), or a size 0 without a size after it in
    GRACE_CLOCKS (no file: no sd card, read only): busy ends, mounted stays 0, nothing is written;
  - wr with wr_addr (a byte offset in the backup RAM, written by the core) marks its sector dirty;
+   there are 64 dirty marks: a size over 64 sectors (SBITS > 6) gives each mark a block of 2^g
+   sectors, the smallest g with size <= 64 * 2^g (taken at start), and a save writes the whole
+   block (512 KB: blocks of 16 sectors, 8 KB). Up to 64 sectors a block is one sector;
  - autosave: the dirty sectors are copied from the memory port and written to the file when the
    writes have stopped for IDLE_CLOCKS, or MAX_CLOCKS after a sector got dirty (games that write
    their backup RAM all the time); a write into a sector being saved marks it dirty again;
@@ -48,13 +52,14 @@ module kg_bk_ram #(
 	parameter GRACE_CLOCKS = 27'd280000,   // ~10 ms: a size 0 mount without a size after it, no file
 	parameter TIMEOUT = 24'd5600000,       // img_sdc: ~200 ms for an answer of the mcu
 	parameter RETRIES = 2'd3,              // img_sdc
-	parameter LINK = 1                     // the MCU link: 1 kg_mcu (img_*), 2 kg_mcu2 (sdc_*, bk_*)
+	parameter LINK = 1,                    // the MCU link: 1 kg_mcu (img_*), 2 kg_mcu2 (sdc_*, bk_*)
+	parameter SBITS = 6                    // sector number bits: at most 2^SBITS sectors (6..16)
 ) (
 	input wire clk,
 	input wire reset,               // a new game: back to no backup RAM (flush before it)
 
 	input wire start,
-	input wire [6:0] size,
+	input wire [SBITS:0] size,
 	input wire [7:0] kind,
 	output wire busy,
 	output reg mounted = 1'b0,      // a file is mounted: its sectors are in the memory, writes saved
@@ -63,12 +68,12 @@ module kg_bk_ram #(
 
 	input wire wr,
 	/* verilator lint_off UNUSEDSIGNAL */
-	input wire [14:0] wr_addr,      // [14:9], the sector
+	input wire [SBITS+8:0] wr_addr, // [SBITS+8:9], the sector
 	/* verilator lint_on UNUSEDSIGNAL */
 
 	output reg mem_req = 1'b0,
 	output reg mem_we = 1'b0,
-	output reg [14:0] mem_addr = 15'd0,
+	output reg [SBITS+8:0] mem_addr = {(SBITS+9){1'b0}},
 	output reg [7:0] mem_din = 8'd0,
 	input wire mem_ack,
 	input wire [7:0] mem_dout,
@@ -124,9 +129,13 @@ localparam S_SWAIT = 4'd8;  // save: img_sdc takes the buffer and writes it
 localparam S_FANS = 4'd9;   // queue the flush answer
 
 reg [3:0] state = S_RUN;
-reg [6:0] bk_size_r = 7'd0;     // sectors of the backup RAM
-reg [6:0] load_n = 7'd0;        // sectors to load (the file can be shorter)
-reg [5:0] sec = 6'd0;
+localparam GW = SBITS - 6;      // bits of the block size (g at most GW)
+reg [SBITS:0] bk_size_r = {(SBITS+1){1'b0}};  // sectors of the backup RAM
+reg [SBITS:0] load_n = {(SBITS+1){1'b0}};     // sectors to load (the file can be shorter)
+reg [SBITS-1:0] sec = {SBITS{1'b0}};
+reg [4:0] g = 5'd0;             // a dirty mark = 2^g sectors
+reg [SBITS-1:0] blk_end = {SBITS{1'b0}};       // the last sector of the block being saved
+reg [5:0] blk = 6'd0;           // its dirty mark
 reg [9:0] pos = 10'd0;
 reg [1:0] step = 2'd0;
 reg [2:0] m = 3'd0;             // CMD_BK_MOUNT frame
@@ -149,7 +158,7 @@ assign img_q_di = own_wr ? own_di : sdc_q_di;
 wire own_ack = LINK == 2 ? own_wr : img_q_ack && own_wr;
 wire own_free = !own_wr || own_ack;
 reg [7:0] kind_r = 8'd0;
-assign bk_size = { 25'd0, bk_size_r };
+assign bk_size = { {(31-SBITS){1'b0}}, bk_size_r };
 assign bk_kind = kind_r;
 
 // ---------------- img_sdc ----------------
@@ -168,7 +177,7 @@ img_sdc #(.OUT_LATENCY(2), .TIMEOUT(TIMEOUT), .RETRIES(RETRIES)) u_sdc(
 	.img_result_wr(img_result_wr), .img_result(img_result), .img_sum(img_sum),
 	.img_q_wr(sdc_q_wr), .img_q_di(sdc_q_di), .img_q_ack(img_q_ack && !own_wr),
 	.sdc_img_mounted(sdc_img_mounted), .sdc_img_size(sdc_img_size),
-	.sdc_rd({7'd0, rd_req} << SLOT), .sdc_wr({7'd0, wr_req} << SLOT), .sdc_sector({26'd0, sec}),
+	.sdc_rd({7'd0, rd_req} << SLOT), .sdc_wr({7'd0, wr_req} << SLOT), .sdc_sector({ {(32-SBITS){1'b0}}, sec }),
 	.sdc_busy(sdc_busy), .sdc_done(sdc_done), .sdc_error(sdc_error), .sdc_slot(),
 	.sdc_byte_in_strobe(sdc_byte_in_strobe), .sdc_byte_addr(sdc_byte_addr),
 	.sdc_byte_in_data(sdc_byte_in_data), .sdc_byte_out_data(sbuf_q),
@@ -191,7 +200,7 @@ end else begin : link2
 	assign sdc_byte_in_data = sdc_byte_in_data_i;
 	assign sdc_rd_o = {7'd0, rd_req} << SLOT;
 	assign sdc_wr_o = {7'd0, wr_req} << SLOT;
-	assign sdc_sector_o = {26'd0, sec};
+	assign sdc_sector_o = { {(32-SBITS){1'b0}}, sec };
 	assign sdc_byte_out_data_o = sbuf_q;
 	assign sdc_q_wr = 1'b0;
 	assign sdc_q_di = 24'd0;
@@ -221,7 +230,34 @@ always @(*) begin
 end
 
 // sectors of the mounted file, at most bk_size
-wire [6:0] file_secs = (|sdc_img_size[63:15]) ? 7'd64 : {1'b0, sdc_img_size[14:9]} + {6'd0, |sdc_img_size[8:0]};
+wire [SBITS:0] file_secs = (|sdc_img_size[63:SBITS+9]) ? {1'b1, {SBITS{1'b0}}} :
+	{1'b0, sdc_img_size[SBITS+8:9]} + {{SBITS{1'b0}}, |sdc_img_size[8:0]};
+
+// g for a size: the smallest with (size - 1) >> g < 64
+reg [4:0] g_of;
+integer k;
+always @(*) begin
+	g_of = 5'd0;
+	for (k = 0; k < GW; k = k + 1)
+		if ((({{(32-SBITS-1){1'b0}}, size} - 32'd1) >> k) >= 32'd64 && size != 0)
+			g_of = k[4:0] + 5'd1;
+end
+
+// the dirty mark of a sector, the first and the last sector of a block
+wire [SBITS-1:0] wr_sec = wr_addr[SBITS+8:9];
+/* verilator lint_off UNUSEDSIGNAL */ // the mark number: the low 6 bits (size <= 64 * 2^g)
+wire [SBITS-1:0] wr_blk_w = wr_sec >> g;
+/* verilator lint_on UNUSEDSIGNAL */
+wire [5:0] wr_blk = wr_blk_w[5:0];
+wire [SBITS-1:0] first_w;
+assign first_w[5:0] = first;
+generate if (GW > 0) begin : first_hi
+	assign first_w[SBITS-1:6] = {GW{1'b0}};
+end endgenerate
+wire [SBITS-1:0] blk_first = first_w << g;
+wire [SBITS-1:0] blk_last_w = blk_first | ~({SBITS{1'b1}} << g);
+wire [SBITS-1:0] size_last = bk_size_r[SBITS-1:0] - 1'b1;  // bk_size 2^SBITS: all ones
+wire [SBITS-1:0] blk_last = blk_last_w > size_last ? size_last : blk_last_w;
 
 always @(posedge clk) begin
 	bk_mount <= 1'b0;
@@ -254,6 +290,7 @@ always @(posedge clk) begin
 					age <= age + 27'd1;
 				if (start) begin
 					bk_size_r <= size;
+					g <= g_of;
 					kind_r <= kind;
 					mounted <= 1'b0;
 					dirty <= 64'd0;
@@ -273,7 +310,9 @@ always @(posedge clk) begin
 					end
 				end
 				else if (mounted && dirty != 0 && (idle == 0 || age == MAX_CLOCKS || (flush_pend && !flush_err))) begin
-					sec <= first;
+					sec <= blk_first;
+					blk <= first;
+					blk_end <= blk_last;
 					dirty[first] <= 1'b0;
 					pos <= 10'd0;
 					step <= 2'd0;
@@ -298,10 +337,10 @@ always @(posedge clk) begin
 				else if (own_free) begin
 					own_wr <= 1'b1;
 					case (m)
-						3'd0: own_di <= { CMD_BK_MOUNT, 8'h00, 1'b0, bk_size_r };
-						3'd1: own_di <= { CMD_BK_MOUNT, 8'h01, 8'h00 };
-						3'd2: own_di <= { CMD_BK_MOUNT, 8'h02, 8'h00 };
-						3'd3: own_di <= { CMD_BK_MOUNT, 8'h03, 8'h00 };
+						3'd0: own_di <= { CMD_BK_MOUNT, 8'h00, bk_size[7:0] };
+						3'd1: own_di <= { CMD_BK_MOUNT, 8'h01, bk_size[15:8] };
+						3'd2: own_di <= { CMD_BK_MOUNT, 8'h02, bk_size[23:16] };
+						3'd3: own_di <= { CMD_BK_MOUNT, 8'h03, bk_size[31:24] };
 						3'd4: own_di <= { CMD_BK_MOUNT, 8'h10, 5'd0, SLOT };
 						default: own_di <= { CMD_BK_MOUNT, 8'h80, kind };
 					endcase
@@ -316,7 +355,7 @@ always @(posedge clk) begin
 			S_MWAIT:
 				if (sdc_img_mounted[SLOT] && sdc_img_size != 0) begin
 					load_n <= file_secs < bk_size_r ? file_secs : bk_size_r;
-					sec <= 6'd0;
+					sec <= {SBITS{1'b0}};
 					state <= S_LREQ;
 				end
 				else if (sdc_img_mounted[SLOT] && !grace) begin
@@ -344,13 +383,13 @@ always @(posedge clk) begin
 
 			S_LCOPY:
 				if (pos == 10'd512) begin
-					if ({1'b0, sec} + 7'd1 == load_n) begin
+					if ({1'b0, sec} + 1'b1 == load_n) begin
 						mounted <= 1'b1;
 						dirty <= 64'd0;
 						state <= S_RUN;
 					end
 					else begin
-						sec <= sec + 6'd1;
+						sec <= sec + 1'b1;
 						state <= S_LREQ;
 					end
 				end
@@ -397,20 +436,28 @@ always @(posedge clk) begin
 			S_SWAIT:
 				if (sdc_done) begin
 					if (sdc_error) begin
-						dirty[sec] <= 1'b1;
+						dirty[blk] <= 1'b1;
 						save_error <= 1'b1;
 						if (flush_pend)
 							flush_err <= 1'b1;
+						state <= S_RUN;
 					end
-					state <= S_RUN;
+					else if (sec != blk_end) begin   // the next sector of the block
+						sec <= sec + 1'b1;
+						pos <= 10'd0;
+						step <= 2'd0;
+						state <= S_SCOPY;
+					end
+					else
+						state <= S_RUN;
 				end
 
 			default: state <= S_RUN;
 		endcase
 
 		// a write of the core: after the clear of a sector being saved, so it is saved again
-		if (wr && mounted && {1'b0, wr_addr[14:9]} < bk_size_r) begin
-			dirty[wr_addr[14:9]] <= 1'b1;
+		if (wr && mounted && {1'b0, wr_sec} < bk_size_r) begin
+			dirty[wr_blk] <= 1'b1;
 			idle <= IDLE_CLOCKS;
 		end
 		if (dirty == 0)

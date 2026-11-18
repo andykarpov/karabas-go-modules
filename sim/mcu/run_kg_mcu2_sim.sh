@@ -30,6 +30,12 @@ iverilog -g2001 -Wall -Wno-timescale -o tb_kg_bk_ram2.vvp "$M/sim/mcu/tb_kg_bk_r
 vvp -n tb_kg_bk_ram2.vvp > tb_kg_bk_ram2.log
 grep -E "ERROR|tb_kg_bk_ram2:" tb_kg_bk_ram2.log | sed "s/^/kg_bk_ram2: /"
 grep -q "tb_kg_bk_ram2: 0 errors" tb_kg_bk_ram2.log
+# the same with blocks of 2 sectors (SBITS 7, 100 sectors)
+iverilog -g2001 -Wall -Wno-timescale -DBIG -o tb_kg_bk_ram2b.vvp "$M/sim/mcu/tb_kg_bk_ram2.v" "$M/rtl/mcu/kg_bk_ram.v" \
+	"$M/rtl/mcu/img_sdc.v" $K 2>&1 | grep -v -e 'warning: Port' -e 'warning: .* implicitly' || true
+vvp -n tb_kg_bk_ram2b.vvp > tb_kg_bk_ram2b.log
+grep -E "ERROR|tb_kg_bk_ram2:" tb_kg_bk_ram2b.log | sed "s/^/kg_bk_ram2 blocks: /"
+grep -q "tb_kg_bk_ram2: 0 errors" tb_kg_bk_ram2b.log
 
 # the byte streams: kg_mcu2 target 05 (kg_l2_port), all four ports
 iverilog -g2001 -Wall -Wno-timescale -o tb_kg_l2_port.vvp "$M/sim/mcu/tb_kg_l2_port.v" $K 2>&1 | grep -v -e 'warning: Port' -e 'warning: .* implicitly' || true
