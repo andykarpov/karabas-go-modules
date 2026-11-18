@@ -130,7 +130,6 @@ localparam S_FANS = 4'd9;   // queue the flush answer
 
 reg [3:0] state = S_RUN;
 localparam GW = SBITS - 6;      // bits of the block size (g at most GW)
-localparam [31:0] ZERO32 = 32'd0;
 reg [SBITS:0] bk_size_r = {(SBITS+1){1'b0}};  // sectors of the backup RAM
 reg [SBITS:0] load_n = {(SBITS+1){1'b0}};     // sectors to load (the file can be shorter)
 reg [SBITS-1:0] sec = {SBITS{1'b0}};
@@ -159,7 +158,7 @@ assign img_q_di = own_wr ? own_di : sdc_q_di;
 wire own_ack = LINK == 2 ? own_wr : img_q_ack && own_wr;
 wire own_free = !own_wr || own_ack;
 reg [7:0] kind_r = 8'd0;
-assign bk_size = ZERO32 | bk_size_r;
+assign bk_size = { {(31-SBITS){1'b0}}, bk_size_r };
 assign bk_kind = kind_r;
 
 // ---------------- img_sdc ----------------
@@ -178,7 +177,7 @@ img_sdc #(.OUT_LATENCY(2), .TIMEOUT(TIMEOUT), .RETRIES(RETRIES)) u_sdc(
 	.img_result_wr(img_result_wr), .img_result(img_result), .img_sum(img_sum),
 	.img_q_wr(sdc_q_wr), .img_q_di(sdc_q_di), .img_q_ack(img_q_ack && !own_wr),
 	.sdc_img_mounted(sdc_img_mounted), .sdc_img_size(sdc_img_size),
-	.sdc_rd({7'd0, rd_req} << SLOT), .sdc_wr({7'd0, wr_req} << SLOT), .sdc_sector(ZERO32 | sec),
+	.sdc_rd({7'd0, rd_req} << SLOT), .sdc_wr({7'd0, wr_req} << SLOT), .sdc_sector({ {(32-SBITS){1'b0}}, sec }),
 	.sdc_busy(sdc_busy), .sdc_done(sdc_done), .sdc_error(sdc_error), .sdc_slot(),
 	.sdc_byte_in_strobe(sdc_byte_in_strobe), .sdc_byte_addr(sdc_byte_addr),
 	.sdc_byte_in_data(sdc_byte_in_data), .sdc_byte_out_data(sbuf_q),
@@ -201,7 +200,7 @@ end else begin : link2
 	assign sdc_byte_in_data = sdc_byte_in_data_i;
 	assign sdc_rd_o = {7'd0, rd_req} << SLOT;
 	assign sdc_wr_o = {7'd0, wr_req} << SLOT;
-	assign sdc_sector_o = ZERO32 | sec;
+	assign sdc_sector_o = { {(32-SBITS){1'b0}}, sec };
 	assign sdc_byte_out_data_o = sbuf_q;
 	assign sdc_q_wr = 1'b0;
 	assign sdc_q_di = 24'd0;
@@ -246,9 +245,15 @@ end
 
 // the dirty mark of a sector, the first and the last sector of a block
 wire [SBITS-1:0] wr_sec = wr_addr[SBITS+8:9];
+/* verilator lint_off UNUSEDSIGNAL */ // the mark number: the low 6 bits (size <= 64 * 2^g)
 wire [SBITS-1:0] wr_blk_w = wr_sec >> g;
+/* verilator lint_on UNUSEDSIGNAL */
 wire [5:0] wr_blk = wr_blk_w[5:0];
-wire [SBITS-1:0] first_w = first;
+wire [SBITS-1:0] first_w;
+assign first_w[5:0] = first;
+generate if (GW > 0) begin : first_hi
+	assign first_w[SBITS-1:6] = {GW{1'b0}};
+end endgenerate
 wire [SBITS-1:0] blk_first = first_w << g;
 wire [SBITS-1:0] blk_last_w = blk_first | ~({SBITS{1'b1}} << g);
 wire [SBITS-1:0] size_last = bk_size_r[SBITS-1:0] - 1'b1;  // bk_size 2^SBITS: all ones
