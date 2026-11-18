@@ -158,20 +158,31 @@ wire zoom_fits = popup_now && zoom_v && W2 <= { 1'b0, aw } && H2 <= { 1'b0, ah }
 wire [3:0] s_n = zoom_fits ? { s_auto[2:0], 1'b0 } : s_auto;
 wire [12:0] W_n = zoom_fits ? W2 : W1;
 wire [12:0] H_n = zoom_fits ? H2 : H1;
-wire signed [13:0] margin = $signed({ 7'd0, s_n, 3'b000 }); // 8 OSD pixels from the top / bottom
+// karabas: s_n / W_n / H_n registered every clock and taken at the frame start from these
+// registers: the chain s_auto -> W1 / H1 -> zoom_fits -> W_n / H_n -> x0 / y0 was 13 levels in one
+// clock (wonderswan on Mini G at 65 MHz: -0.7 ns). Their inputs change once a frame (aw / ah) or with
+// an OSD command: one clock of delay does not matter.
+reg [3:0] s_q = 4'd1;
+reg [12:0] W_q = 13'd0, H_q = 13'd0;
+always @(posedge clk) begin
+	s_q <= s_n;
+	W_q <= W_n;
+	H_q <= H_n;
+end
+wire signed [13:0] margin = $signed({ 7'd0, s_q, 3'b000 }); // 8 OSD pixels from the top / bottom
 
 always @(posedge clk)
 	if (frame_start) begin
 		vis <= vis_now;
-		s <= s_n;
+		s <= s_q;
 		wx0 <= popup_now ? { px_v, 3'b000 } : 8'd0;
 		wy0 <= popup_now ? { py_v, 3'b000 } : 7'd0;
-		W <= W_n;
-		H <= H_n;
-		x0 <= ($signed({ 2'b00, aw }) - $signed({ 1'b0, W_n })) >>> 1;
-		y0 <= (!popup_now || place_v == 2'd0) ? ($signed({ 2'b00, ah }) - $signed({ 1'b0, H_n })) >>> 1 :
+		W <= W_q;
+		H <= H_q;
+		x0 <= ($signed({ 2'b00, aw }) - $signed({ 1'b0, W_q })) >>> 1;
+		y0 <= (!popup_now || place_v == 2'd0) ? ($signed({ 2'b00, ah }) - $signed({ 1'b0, H_q })) >>> 1 :
 		      (place_v == 2'd1) ? margin :
-		      $signed({ 2'b00, ah }) - $signed({ 1'b0, H_n }) - margin;
+		      $signed({ 2'b00, ah }) - $signed({ 1'b0, H_q }) - margin;
 		fg <= fg_v;
 		bg <= bg_v;
 		alpha <= alpha_v;
