@@ -16,6 +16,9 @@
  - a write that fails (DONE 2 until the retries are spent) and FLUSH: kind 3 result 2,
    save_error, the sector saved again after it;
  - INT low at the end.
+ With -DBIG: SBITS 7, size 100 sectors, so a dirty mark is a block of 2 sectors: a write into
+ sector 1 saves sectors 0 and 1, into 99 saves 98 and 99, into 100 (past the size) nothing, a
+ write into 2 and FLUSH saves 2 and 3 before the answer.
  Prints "tb_kg_bk_ram2: 0 errors".
 */
 
@@ -33,6 +36,13 @@ task check(input [255:0] what, input [63:0] got, input [63:0] want);
 endtask
 
 localparam [2:0] SLOT = 3'd5;
+`ifdef BIG
+localparam SB = 7;
+localparam [SB:0] SIZE = 100;
+`else
+localparam SB = 6;
+localparam [SB:0] SIZE = 4;
+`endif
 
 // ---------------- the dut ----------------
 
@@ -79,9 +89,9 @@ kg_mcu2 #(.CAPS(16'h0003), .ENABLE_OSD(0), .ENABLE_IMG(1), .IMG_OUT_LATENCY(2)) 
 );
 
 // the memory of the core: 32 KB, an aux port that acks 3 clocks after the request
-reg [7:0] mem [0:32767];
+reg [7:0] mem [0:(1 << (SB + 9)) - 1];
 wire mem_req, mem_we;
-wire [14:0] mem_addr;
+wire [SB+8:0] mem_addr;
 wire [7:0] mem_din;
 reg mem_ack = 1'b0;
 reg [7:0] mem_dout = 8'd0;
@@ -101,12 +111,12 @@ always @(posedge clk) begin
 end
 
 reg start = 1'b0, core_wr = 1'b0;
-reg [14:0] core_addr = 15'd0;
+reg [SB+8:0] core_addr = 0;
 wire busy, mounted, saving, save_error;
 
 kg_bk_ram #(.SLOT(SLOT), .IDLE_CLOCKS(27'd3000), .MAX_CLOCKS(27'd400000), .MOUNT_CLOCKS(27'd3000000),
-	.GRACE_CLOCKS(27'd3000), .LINK(2)) bk(
-	.clk(clk), .reset(1'b0), .start(start), .size(7'd4), .kind(8'd0),
+	.GRACE_CLOCKS(27'd3000), .LINK(2), .SBITS(SB)) bk(
+	.clk(clk), .reset(1'b0), .start(start), .size(SIZE), .kind(8'd0),
 	.busy(busy), .mounted(mounted), .saving(saving), .save_error(save_error),
 	.wr(core_wr), .wr_addr(core_addr),
 	.mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr), .mem_din(mem_din),
@@ -237,7 +247,7 @@ task wait_irq(input [255:0] what);
 endtask
 
 // a write of the core: the memory and the dirty mark
-task core_write(input [14:0] a, input [7:0] v);
+task core_write(input [SB+8:0] a, input [7:0] v);
 	begin
 		mem[a] = v;
 		@(posedge clk); core_addr <= a; core_wr <= 1'b1;
@@ -250,7 +260,7 @@ reg b, ok;
 reg [7:0] kind, slot, st, ext;
 reg [31:0] arg;
 initial begin
-	for (i = 0; i < 32768; i = i + 1) mem[i] = 8'hEE;
+	for (i = 0; i < (1 << (SB + 9)); i = i + 1) mem[i] = 8'hEE;
 	#2000;
 	img_irq(b); check("INT low at start", b, 1'b0);
 
@@ -263,7 +273,7 @@ initial begin
 	event_read(kind, slot, arg, ext);
 	check("event kind mount", kind, 8'd4);
 	check("mount slot", slot, 8'd5);
-	check("mount size", arg, 32'd4);
+	check("mount size", arg, SIZE);
 	check("mount kind", ext, 8'd0);
 	img_irq(b); check("INT after the mount event", b, 1'b0);
 
@@ -293,6 +303,45 @@ initial begin
 	check("the file in the memory", ok, 1'b1);
 	check("sector 3 untouched", mem[3 * 512 + 7], 8'hEE);
 	img_irq(b); check("INT low after the load", b, 1'b0);
+`ifdef BIG
+	// ---- blocks of 2 sectors ----
+	core_write(512 + 5, 8'hA5);
+	for (s = 0; s < 2; s = s + 1) begin
+		#300000;
+		event_read(kind, slot, arg, ext);
+		check("block: kind write", kind, 8'd2);
+		check("block 0: lba", arg, s);
+		wdata_check(s);
+		done(SLOT, 8'd1);
+	end
+	core_write(99 * 512 + 7, 8'h3C);
+	for (s = 98; s < 100; s = s + 1) begin
+		#300000;
+		event_read(kind, slot, arg, ext);
+		check("block 49: kind write", kind, 8'd2);
+		check("block 49: lba", arg, s);
+		wdata_check(s);
+		done(SLOT, 8'd1);
+	end
+	core_write(100 * 512, 8'h77);       // past the size: no save
+	#300000;
+	event_read(kind, slot, arg, ext);
+	check("past the size: no event", kind, 8'd0);
+	core_write(2 * 512 + 1, 8'h5A);
+	flush(SLOT);
+	for (s = 2; s < 4; s = s + 1) begin
+		#300000;
+		event_read(kind, slot, arg, ext);
+		check("flush block: kind write", kind, 8'd2);
+		check("flush block: lba", arg, s);
+		wdata_check(s);
+		done(SLOT, 8'd1);
+	end
+	#300000;
+	event_read(kind, slot, arg, ext);
+	check("flush block: answer kind 3", kind, 8'd3);
+	check("flush block: result 1", arg, 32'd1);
+`else
 
 	// ---- a write into sector 1: autosave ----
 	core_write(15'h0205, 8'hA5);
@@ -359,6 +408,7 @@ initial begin
 	check("again after the error: lba 0", arg, 32'd0);
 	wdata_check(0);
 	done(SLOT, 8'd1);
+`endif
 
 	#300000;
 	event_read(kind, slot, arg, ext);
