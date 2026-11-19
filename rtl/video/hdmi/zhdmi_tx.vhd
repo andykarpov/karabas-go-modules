@@ -37,7 +37,11 @@ entity hdmi_tx is
 		-- audio_en it needs both to be placed close to the serializer, which fails near 99 % slices
 		-- (tsconf on Mini G, FT 64 MHz: -1.1 ns, a route of 6 ns). The register has one load and goes next
 		-- to its serializer; the encoders get the whole pixel clock.
-		OUTPUT_REG : integer range 0 to 1 := 0
+		OUTPUT_REG : integer range 0 to 1 := 0;
+		-- karabas: the ECC of the data island encoder one clock later (its ECC_LAG): the bit mux and two ECC
+		-- steps in one clock missed 65 MHz (agon 1024x768 on Mini G, -1.6 ns). No change of the outputs or of
+		-- the latency.
+		ISLAND_REG : integer range 0 to 1 := 0
 	);
 	port (
 		clk      : in std_logic;	-- pixel clock
@@ -137,7 +141,8 @@ begin
 	);
 
 	signaler: entity work.signaling generic map (
-			SAMPLE_FREQ => SAMPLE_FREQ
+			SAMPLE_FREQ => SAMPLE_FREQ,
+			ISLAND_REG => ISLAND_REG
 		)
 		port map (
 			clk => clk,

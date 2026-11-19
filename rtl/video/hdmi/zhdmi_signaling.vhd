@@ -20,7 +20,8 @@ use ieee.numeric_std.all;
 
 entity signaling is
 	generic (
-		SAMPLE_FREQ : integer := 48000
+		SAMPLE_FREQ : integer := 48000;
+		ISLAND_REG : integer range 0 to 1 := 0   -- karabas: the ECC_LAG of the island encoder (hdmi_tx)
 	);
 	port (
 		clk   : in std_logic;
@@ -104,7 +105,7 @@ begin
 			dready => packet_ready
 	);
 
-	isl_enc : entity work.island_encoder port map (
+	isl_enc : entity work.island_encoder generic map (ECC_LAG => ISLAND_REG) port map (
 		clk => clk,
 		reset => reset,
 
