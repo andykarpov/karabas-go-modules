@@ -3,6 +3,8 @@
 -- ghdl run (ghdl --synth turns the array of the original into a RAM with a registered read, which is
 -- not what XST builds). Packets of 31 random bytes with gaps of 0..63 clocks, dvalid also low now and
 -- then and held by dready; every output is compared on every clock.
+-- karabas: the encoder with ECC_LAG 1 (the ECC a clock later) is a third one, also
+-- compared with the original on every clock (p_*).
 -- Prints "tb_eq_island_encoder: N errors".
 library ieee;
 use ieee.std_logic_1164.all;
@@ -21,6 +23,8 @@ architecture sim of tb_eq_island_encoder is
 	signal r_rdy, r_busy, r_pre, r_grd, r_pkt, r_a0 : std_logic;
 	signal n_rdy, n_busy, n_pre, n_grd, n_pkt, n_a0 : std_logic;
 	signal r_a1, r_a2, n_a1, n_a2 : std_logic_vector(3 downto 0);
+	signal p_rdy, p_busy, p_pre, p_grd, p_pkt, p_a0 : std_logic;
+	signal p_a1, p_a2 : std_logic_vector(3 downto 0);
 	constant CLOCKS : integer := 60000;
 begin
 	clk <= not clk after 5 ns when not done;
@@ -29,6 +33,9 @@ begin
 		r_pkt, r_a0, r_a1, r_a2);
 	new_enc : entity work.island_encoder port map (clk, reset, data, dvalid, n_rdy, n_busy, n_pre, n_grd,
 		n_pkt, n_a0, n_a1, n_a2);
+
+	pipe_enc : entity work.island_encoder generic map (ECC_LAG => 1) port map (clk, reset, data, dvalid, p_rdy,
+		p_busy, p_pre, p_grd, p_pkt, p_a0, p_a1, p_a2);
 
 	process
 		variable s1, s2 : positive := 11;
@@ -43,6 +50,13 @@ begin
 			   r_a0 /= n_a0 or r_a1 /= n_a1 or r_a2 /= n_a2 then
 				if errors < 5 then
 					report "ERROR at clock " & integer'image(c);
+				end if;
+				errors := errors + 1;
+			end if;
+			if r_rdy /= p_rdy or r_busy /= p_busy or r_pre /= p_pre or r_grd /= p_grd or r_pkt /= p_pkt or
+			   r_a0 /= p_a0 or r_a1 /= p_a1 or r_a2 /= p_a2 then
+				if errors < 5 then
+					report "ERROR (ECC_LAG) at clock " & integer'image(c);
 				end if;
 				errors := errors + 1;
 			end if;

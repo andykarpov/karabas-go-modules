@@ -20,6 +20,13 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 entity island_encoder is
+	-- karabas: ECC_LAG 1 takes the BCH ECC of a bit one clock later, from the registered aux outputs (the bit
+	-- of the clock before), and only the clock that sends the first ECC bit adds the last data bit to it: a
+	-- clock then has the bit mux or the ECC steps, not both (the mux and two ECC steps missed 65 MHz, agon
+	-- 1024x768 on Mini G: -1.6 ns). The outputs are the same, clock by clock; 0 = as before.
+	generic (
+		ECC_LAG : integer := 0
+	);
 	port (
 		clk      : in std_logic;
 		reset    : in std_logic;
@@ -74,6 +81,9 @@ architecture rtl of island_encoder is
 	signal s_preamble : std_logic;
 	signal s_guard    : std_logic;
 	signal s_packet   : std_logic;
+	-- karabas: the aux outputs as registers inside (ECC_LAG reads them)
+	signal r_aux0 : std_logic;
+	signal r_aux1, r_aux2 : std_logic_vector(3 downto 0);
 
 	function next_ecc(old_ecc : in std_logic_vector; x : in std_logic) return std_logic_vector is
 	begin
@@ -87,6 +97,9 @@ begin
 	s_preamble <= '1' when island_st = preamb else '0';
 	s_guard <= '1' when island_st = ld_guard or island_st = tr_guard else '0';
 	s_packet <= '1' when island_st = pack else '0';
+	aux0 <= r_aux0;
+	aux1 <= r_aux1;
+	aux2 <= r_aux2;
 
 	buffer_full <= '1' when packet_rd_buf_idx /= packet_wr_buf_idx and packet_rd_idx = 30 else '0';
 	dready <= '1' when dvalid = '1' and buffer_full = '0' else '0';
@@ -134,15 +147,16 @@ process(clk)
 	variable idx : integer range 0 to 30;
 	variable ec  : std_logic_vector(7 downto 0);
 	variable b   : std_logic;
+	variable e0  : std_logic_vector(7 downto 0);
 begin
 	if rising_edge(clk) then
 		if reset = '1' then
 			packet_wr_buf_idx <= 0;
 			ifcnt <= (others => '0');
 			island_st <= idle;
-			aux0 <= '0';
-			aux1 <= "0000";
-			aux2 <= "0000";
+			r_aux0 <= '0';
+			r_aux1 <= "0000";
+			r_aux2 <= "0000";
 		else
 			if ifcnt > 0 then
 				ifcnt <= ifcnt - 1;
@@ -173,30 +187,69 @@ begin
 					pck := packet_buffer1;
 				end if;
 				bid := 7 - to_integer(ifcnt(2 downto 0));
-				if ifcnt >= 8 then
-					idx := 3 - to_integer(ifcnt(4 downto 3));
-					b := pck(idx)(bid);
-					aux0 <= b;
-					ecc0 <= next_ecc(ecc0,b);
+				if ECC_LAG = 0 then
+					if ifcnt >= 8 then
+						idx := 3 - to_integer(ifcnt(4 downto 3));
+						b := pck(idx)(bid);
+						r_aux0 <= b;
+						ecc0 <= next_ecc(ecc0,b);
+					else
+						r_aux0 <= ecc0(bid);
+					end if;
 				else
-					aux0 <= ecc0(bid);
+					-- karabas: the bit of the clock before (aux0) into ecc0 now (none before ifcnt 31)
+					if ifcnt >= 8 then
+						idx := 3 - to_integer(ifcnt(4 downto 3));
+						r_aux0 <= pck(idx)(bid);
+						if ifcnt /= 31 then
+							ecc0 <= next_ecc(ecc0,r_aux0);
+						end if;
+					elsif ifcnt = 7 then
+						e0 := next_ecc(ecc0,r_aux0);
+						r_aux0 <= e0(bid);
+						ecc0 <= e0;
+					else
+						r_aux0 <= ecc0(bid);
+					end if;
 				end if;
 
 				bid := 6 - 2 * to_integer(ifcnt(1 downto 0));
 				idx := 3 + 7 - to_integer(ifcnt(4 downto 2));
-				if ifcnt >= 4 then
-					for i in 0 to 3 loop
-						b := pck(idx+7*i)(bid);
-						aux1(i) <= b;
-						ec := next_ecc(ecc(i),b);
-						b := pck(idx+7*i)(bid+1);
-						aux2(i) <= b;
-						ecc(i) <= next_ecc(ec,b);
-					end loop;
+				if ECC_LAG = 0 then
+					if ifcnt >= 4 then
+						for i in 0 to 3 loop
+							b := pck(idx+7*i)(bid);
+							r_aux1(i) <= b;
+							ec := next_ecc(ecc(i),b);
+							b := pck(idx+7*i)(bid+1);
+							r_aux2(i) <= b;
+							ecc(i) <= next_ecc(ec,b);
+						end loop;
+					else
+						for i in 0 to 3 loop
+							r_aux1(i) <= ecc(i)(bid);
+							r_aux2(i) <= ecc(i)(bid+1);
+						end loop;
+					end if;
 				else
+					-- karabas: the two bits of the clock before (aux1 / aux2) into ecc now
 					for i in 0 to 3 loop
-						aux1(i) <= ecc(i)(bid);
-						aux2(i) <= ecc(i)(bid+1);
+						ec := next_ecc(ecc(i),r_aux1(i));
+						ec := next_ecc(ec,r_aux2(i));
+						if ifcnt >= 4 then
+							r_aux1(i) <= pck(idx+7*i)(bid);
+							r_aux2(i) <= pck(idx+7*i)(bid+1);
+							if ifcnt /= 31 then
+								ecc(i) <= ec;
+							end if;
+						elsif ifcnt = 3 then
+							r_aux1(i) <= ec(bid);
+							r_aux2(i) <= ec(bid+1);
+							ecc(i) <= ec;
+						else
+							r_aux1(i) <= ecc(i)(bid);
+							r_aux2(i) <= ecc(i)(bid+1);
+						end if;
 					end loop;
 				end if;
 
@@ -214,9 +267,9 @@ begin
 					end if;
 				end if;
 			when tr_guard =>
-				aux0 <= '0';
-				aux1 <= "0000";
-				aux2 <= "0000";
+				r_aux0 <= '0';
+				r_aux1 <= "0000";
+				r_aux2 <= "0000";
 				if ifcnt = 0 then
 					island_st <= idle;
 				end if;
