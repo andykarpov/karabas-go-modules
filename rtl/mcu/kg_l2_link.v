@@ -25,7 +25,8 @@
  (docs/link_v2.md 3). rq for position m comes with the stb of payload byte m - 2 (m = 0 and 1:
  with the target byte and the command byte).
 
- irq: the pending bits of the targets, bit n = target n; int_out is their or (the INT line,
+ irq: the pending bits of the targets, bit n = target n (16: targets 08..0F answer in the second
+ byte of SYS IRQ); int_out is their or (the INT line,
  active high).
 
  Chip select: as kg_mcu_link, cs_n goes low at once and high only after CS_FILTER clocks high.
@@ -56,7 +57,7 @@ module kg_l2_link #(
 	output wire [9:0] rq_m,
 	input wire [7:0] q,
 
-	input wire [7:0] irq,
+	input wire [15:0] irq,
 	output reg int_out = 1'b0
 );
 
