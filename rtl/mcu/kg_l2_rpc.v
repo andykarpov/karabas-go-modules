@@ -94,7 +94,7 @@ kg_tdpram #(.DW(8), .AW(11)) u_ram(
 
 // a 16-bit sum of the bytes of a packet: what went out (REQ) or came in (RESP, EVENT)
 reg [15:0] sum = 16'd0;
-reg [15:0] sum_rx = 16'd0;
+reg [7:0] sum_rx_lo = 8'd0;              // the low byte of the received sum (the high one is d)
 reg [7:0] h_id = 8'd0, h_st = 8'd0;   // RESP: id and status / EVENT: service and code
 reg [9:0] h_len = 10'd0;
 reg slot_ok = 1'b0;                     // EVENT: the slot was free at its start
@@ -103,7 +103,7 @@ wire [9:0] req_end = 10'd6 + r_len;     // REQ: the position of sum lo
 wire [9:0] in_end = 10'd4 + h_len;      // RESP / EVENT: the position of sum lo
 wire len_ok = h_len <= 10'd512;
 // the received sum: the ack is asked with the stb of its high byte (d), in the same clock
-wire [15:0] rx_sum = { d, sum_rx[7:0] };
+wire [15:0] rx_sum = { d, sum_rx_lo };
 
 // the answers (combinational on rq_m; the RAM byte was addressed at the rq before)
 always @(*) begin
@@ -198,8 +198,7 @@ always @(posedge clk) begin
 					if (n == 10'd2) h_len[7:0] <= d;
 					if (n == 10'd3) h_len[9:8] <= d[1:0];
 					if (n < in_end) sum <= sum + { 8'd0, d };
-					if (n == in_end) sum_rx[7:0] <= d;
-					if (n == in_end + 10'd1) sum_rx[15:8] <= d;
+					if (n == in_end) sum_rx_lo <= d;
 				end
 				// the payload into its buffer (the response only for a waiting call, the event only
 				// into a free slot, so that what the CPU reads is never overwritten)
