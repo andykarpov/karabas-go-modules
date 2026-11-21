@@ -24,7 +24,10 @@
  the last value (several writes in a row = the last one), and again after the GET that took the
  old one. A SET byte of the mcu for a register dirty or in the fifo is not written: the core keeps
  the value it wrote until the mcu has it (the time of the 500 ms packets would undo the write in
- the RAM the core reads). GET is the same packet (at most 8 a read: the firmware takes 8). For a
+ the RAM the core reads). GET is the same packet (at most 8 a read: the firmware takes 8). The
+ order of the writes across registers is not kept: the mcu gets them in the order of the scanner
+ (a core that changes DM of register B and then writes the time may see the time arrive first;
+ Sprinter keeps B in BCD). For a
  core that writes many registers in a burst (the SETUP of Sprinter: ~150 writes in a millisecond);
  costs two bitmaps of SEND_LIMIT bits, a SEND_LIMIT x 8 distributed RAM and the scanner.
 */
