@@ -8,7 +8,8 @@
  kg_l2_link. Payload positions (m), Z = the turnaround byte:
 
    00 STATUS       Z, 'K', 'G', 2, caps lo, caps hi, osd width / 8, osd height / 8, ports
-   01 IRQ          ack, Z, pending (as it was before the ack; the ack clears SYS causes)
+   01 IRQ          ack, Z, pending 7..0, pending 15..8 (as it was before the ack; the ack clears SYS
+                   causes; a firmware before RPC reads only the first byte)
    02 IRQ_SRC      Z, causes: bit 0 coldboot, bit 1 reload request (reading clears bit 0)
    03 SETVAL       (index, value) x n: sw_wr one clock with sw_index / sw_value per pair
    04 HW_SETUP     key, value...: byte k is key + k: 00 board, 01 dvi only, 10..17 core build,
@@ -40,7 +41,7 @@ module kg_l2_sys #(
 	input wire [9:0] rq_m,
 	output reg [7:0] q,
 
-	input wire [7:0] pending, // all targets
+	input wire [15:0] pending, // all targets
 	output wire irq,
 
 	output reg sw_wr = 1'b0,
@@ -87,7 +88,7 @@ always @(*) begin
 					10'd8: q = PORTS;
 					default: ;
 				endcase
-			8'h01: if (rq_m == 10'd2) q = pending;
+			8'h01: if (rq_m == 10'd2) q = pending[7:0]; else if (rq_m == 10'd3) q = pending[15:8];
 			8'h02: if (rq_m == 10'd1) q = causes;
 			8'h08: if (rq_m == 10'd1) q = reload_core;
 			default: ;

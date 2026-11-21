@@ -35,7 +35,9 @@
    later, RTC_DI written with RTC_CS and !RTC_WR_N), RTC_SKIP_0D, RTC_SEND_LIMIT.
  - AUX (ENABLE_AUX): MATRIX_CMD / MATRIX_CMD_WR, the frames of v1 (matrix CTL / PIXEL / BITPLAN,
    the audio peaks of audio_peaks.v), DEBUG_ADDR / DEBUG_DATA; kg_l2_aux keeps them for the mcu.
- - CAPS bits 0 (IMG), 5 (RTC), 6 (AUX) are set from ENABLE_IMG / _RTC / _AUX.
+ - RPC (ENABLE_RPC): the mailbox of kg_l2_rpc for the calls of the core (its CPU) to the
+   firmware and the events back (RPC_A / RPC_WE / RPC_WD / RPC_RD, the map in kg_l2_rpc.v).
+ - CAPS bits 0 (IMG), 5 (RTC), 6 (AUX), 10 (RPC) are set from ENABLE_IMG / _RTC / _AUX / _RPC.
  - IMG (ENABLE_IMG): the file mounter of kg_l2_img as the sector interface of img_sdc (SDC_*,
    the drives of the cores as they are), IMG_WP, IMG_PHYS, IMG_FLUSH, FDD_CHNG; CAPS bit 0 says
    so to the mcu (bit 2: write protected images are answered). BK_*: the events of kg_bk_ram
@@ -59,6 +61,8 @@ module kg_mcu2 #(
 	parameter RTC_SKIP_0D = 1,
 	parameter RTC_SEND_LIMIT = 256,
 	parameter ENABLE_AUX = 0,     // AUX (target 07): MATRIX_CMD, DEBUG_*
+	parameter ENABLE_RPC = 0,     // RPC (target 08): RPC_* (caps bit 10)
+	parameter [15:0] RPC_SERVICES = 16'h0000, // the services of the firmware the core uses
 	parameter PORT_OUT_AW = 5,    // the fifos of each port: 2^AW bytes
 	parameter PORT_IN_AW = 5,
 	parameter IMG_OUT_LATENCY = 3, // kg_l2_img: clocks from SDC_BYTE_ADDR to SDC_BYTE_OUT_DATA
@@ -195,6 +199,12 @@ module kg_mcu2 #(
 	input wire MATRIX_CMD_WR,
 	input wire [15:0] DEBUG_ADDR,
 	input wire [15:0] DEBUG_DATA,
+
+	// rpc (ENABLE_RPC): the mailbox of kg_l2_rpc (a byte bus, one clock of read latency)
+	input wire [10:0] RPC_A,
+	input wire RPC_WE,
+	input wire [7:0] RPC_WD,
+	output wire [7:0] RPC_RD,
 	/* verilator lint_on UNUSEDSIGNAL */
 	output wire [7:0] RTC_DO,
 
@@ -218,8 +228,8 @@ wire stb, start, rq;
 wire [7:0] tgt, cmd, d;
 wire [9:0] n, rq_m;
 wire spi_miso, spi_sel;
-wire [7:0] irq;
-wire [7:0] q_sys, q_hid, q_load, q_img, q_port, q_rtc, q_aux;
+wire [15:0] irq;
+wire [7:0] q_sys, q_hid, q_load, q_img, q_port, q_rtc, q_aux, q_rpc;
 
 /* verilator lint_off UNUSEDSIGNAL */
 wire start_u = start; // only kg_l2_img looks at it
@@ -229,7 +239,7 @@ kg_l2_link #(.CS_FILTER(CS_FILTER)) u_link(
 	.clk(CLK),
 	.sck(MCU_SCK), .mosi(MCU_MOSI), .miso(spi_miso), .miso_en(spi_sel), .cs_n(MCU_SS),
 	.stb(stb), .start(start), .tgt(tgt), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m),
-	.q(tgt == 8'h00 ? q_sys : tgt == 8'h01 ? q_hid : tgt == 8'h03 ? q_img : tgt == 8'h04 ? q_load : tgt == 8'h05 ? q_port : tgt == 8'h06 ? q_rtc : tgt == 8'h07 ? q_aux : 8'h00), // OSD answers nothing
+	.q(tgt == 8'h00 ? q_sys : tgt == 8'h01 ? q_hid : tgt == 8'h03 ? q_img : tgt == 8'h04 ? q_load : tgt == 8'h05 ? q_port : tgt == 8'h06 ? q_rtc : tgt == 8'h07 ? q_aux : tgt == 8'h08 ? q_rpc : 8'h00), // OSD answers nothing
 	.irq(irq), .int_out(MCU_INT)
 );
 
@@ -259,9 +269,9 @@ endgenerate
 
 // ---------------- targets ----------------
 
-wire irq_sys, irq_hid, irq_img, irq_port, irq_rtc, irq_aux;
-assign irq = { irq_aux, irq_rtc, irq_port, 1'b0, irq_img, 1'b0, irq_hid, irq_sys };
-localparam [15:0] CAPS_ALL = CAPS | (ENABLE_IMG ? 16'h0001 : 16'h0000) | (ENABLE_RTC ? 16'h0020 : 16'h0000) |
+wire irq_sys, irq_hid, irq_img, irq_port, irq_rtc, irq_aux, irq_rpc;
+assign irq = { 7'd0, irq_rpc, irq_aux, irq_rtc, irq_port, 1'b0, irq_img, 1'b0, irq_hid, irq_sys };
+localparam [15:0] CAPS_ALL = CAPS | (ENABLE_IMG ? 16'h0001 : 16'h0000) | (ENABLE_RPC ? 16'h0400 : 16'h0000) | (ENABLE_RTC ? 16'h0020 : 16'h0000) |
 	(ENABLE_AUX ? 16'h0040 : 16'h0000);
 
 kg_l2_sys #(.CAPS(CAPS_ALL), .PORTS({ 4'd0, ENABLE_PORTS }), .OSD_W8(ENABLE_OSD ? 8'd32 : 8'd0), .OSD_H8(ENABLE_OSD ? 8'd16 : 8'd0)) u_sys(
@@ -406,6 +416,19 @@ generate
 	else begin : kg_mcu2_aux_off
 		assign q_aux = 8'h00;
 		assign irq_aux = 1'b0;
+	end
+	if (ENABLE_RPC) begin : kg_mcu2_rpc_on
+		kg_l2_rpc #(.SERVICES(RPC_SERVICES)) u_rpc(
+			.clk(CLK), .reset(~N_RESET),
+			.sel(tgt == 8'h08), .stb(stb), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m),
+			.q(q_rpc), .irq(irq_rpc),
+			.cpu_a(RPC_A), .cpu_we(RPC_WE), .cpu_wd(RPC_WD), .cpu_rd(RPC_RD)
+		);
+	end
+	else begin : kg_mcu2_rpc_off
+		assign q_rpc = 8'h00;
+		assign irq_rpc = 1'b0;
+		assign RPC_RD = 8'h00;
 	end
 endgenerate
 
