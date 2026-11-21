@@ -32,7 +32,8 @@
    +: 32] (port 0: the divisor DLL, DLM; port 3: bit 0 asks for the printer status),
    PORT_STAT / PORT_STAT_WR (port 3: the printer status, bit 7 BUSY). STATUS reports the mask.
  - RTC (ENABLE_RTC): the clock registers of kg_l2_rtc as kg_mcu_rtc (RTC_A -> RTC_DO a clock
-   later, RTC_DI written with RTC_CS and !RTC_WR_N), RTC_SKIP_0D, RTC_SEND_LIMIT.
+   later, RTC_DI written with RTC_CS and !RTC_WR_N), RTC_SKIP_0D, RTC_SEND_LIMIT, RTC_COALESCE (1: no
+   write lost, the registers written again before the mcu read them sent once with the last value).
  - AUX (ENABLE_AUX): MATRIX_CMD / MATRIX_CMD_WR, the frames of v1 (matrix CTL / PIXEL / BITPLAN,
    the audio peaks of audio_peaks.v), DEBUG_ADDR / DEBUG_DATA; kg_l2_aux keeps them for the mcu.
  - CAPS bits 0 (IMG), 5 (RTC), 6 (AUX) are set from ENABLE_IMG / _RTC / _AUX.
@@ -58,6 +59,7 @@ module kg_mcu2 #(
 	parameter ENABLE_RTC = 0,     // RTC (target 06): RTC_*
 	parameter RTC_SKIP_0D = 1,
 	parameter RTC_SEND_LIMIT = 256,
+	parameter RTC_COALESCE = 0,   // kg_l2_rtc COALESCE
 	parameter ENABLE_AUX = 0,     // AUX (target 07): MATRIX_CMD, DEBUG_*
 	parameter PORT_OUT_AW = 5,    // the fifos of each port: 2^AW bytes
 	parameter PORT_IN_AW = 5,
@@ -383,7 +385,7 @@ assign irq_port = |irq_ports;
 
 generate
 	if (ENABLE_RTC) begin : kg_mcu2_rtc_on
-		kg_l2_rtc #(.SKIP_0D(RTC_SKIP_0D), .SEND_LIMIT(RTC_SEND_LIMIT)) u_rtc(
+		kg_l2_rtc #(.SKIP_0D(RTC_SKIP_0D), .SEND_LIMIT(RTC_SEND_LIMIT), .COALESCE(RTC_COALESCE)) u_rtc(
 			.clk(CLK),
 			.sel(tgt == 8'h06), .stb(stb), .cmd(cmd), .n(n), .d(d), .rq(rq), .rq_m(rq_m),
 			.q(q_rtc), .irq(irq_rtc), .busy(BUSY),
