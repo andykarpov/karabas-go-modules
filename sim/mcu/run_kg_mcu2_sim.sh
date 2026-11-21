@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 M=$(cd ../.. && pwd)
 mkdir -p ../build/kg_mcu2
 cd ../build/kg_mcu2
-K="$M/rtl/mcu/kg_mcu2.v $M/rtl/mcu/kg_l2_link.v $M/rtl/mcu/kg_l2_sys.v $M/rtl/mcu/kg_l2_hid.v $M/rtl/mcu/kg_l2_load.v $M/rtl/mcu/kg_l2_osd.v $M/rtl/mcu/kg_l2_img.v $M/rtl/mcu/kg_l2_port.v $M/rtl/mcu/kg_l2_rtc.v $M/rtl/mcu/kg_l2_aux.v $M/rtl/mem/kg_sdpram.v"
+K="$M/rtl/mcu/kg_mcu2.v $M/rtl/mcu/kg_l2_link.v $M/rtl/mcu/kg_l2_sys.v $M/rtl/mcu/kg_l2_hid.v $M/rtl/mcu/kg_l2_load.v $M/rtl/mcu/kg_l2_osd.v $M/rtl/mcu/kg_l2_img.v $M/rtl/mcu/kg_l2_port.v $M/rtl/mcu/kg_l2_rtc.v $M/rtl/mcu/kg_l2_aux.v $M/rtl/mem/kg_sdpram.v $M/rtl/mem/kg_dist_sdpram.v"
 for cfg in "31 0 17.86" "16 0 17.86" "31 300 17.86" "16 300 17.86" "16 0 40" "31 0 7.69" "31 0 4" "62 0 7.69" "8 0 7.69"; do
 	set -- $cfg
 	iverilog -g2001 -Wall -Wno-timescale -Ptb_kg_mcu2.SCK_HALF=$1 -Ptb_kg_mcu2.GAP=$2 -Ptb_kg_mcu2.CLK_HALF=$3 \
@@ -48,6 +48,13 @@ iverilog -g2001 -Wall -Wno-timescale -o tb_kg_l2_rtc_aux.vvp "$M/sim/mcu/tb_kg_l
 vvp -n tb_kg_l2_rtc_aux.vvp > tb_kg_l2_rtc_aux.log
 grep -E "ERROR|tb_kg_l2_rtc_aux:" tb_kg_l2_rtc_aux.log | sed "s/^/kg_l2_rtc_aux: /"
 grep -q "tb_kg_l2_rtc_aux: 0 errors" tb_kg_l2_rtc_aux.log
+
+# RTC with COALESCE: no write of the core lost (a burst of 150, SET over pending registers, random writes
+# against GET / SET at random times, a write in the clock of the scanner's take)
+iverilog -g2001 -Wall -Wno-timescale -o tb_kg_l2_rtc_coalesce.vvp "$M/sim/mcu/tb_kg_l2_rtc_coalesce.v" $K 2>&1 | grep -v -e 'warning: Port' -e 'warning: .* implicitly' || true
+vvp -n tb_kg_l2_rtc_coalesce.vvp > tb_kg_l2_rtc_coalesce.log
+grep -E "ERROR|tb_kg_l2_rtc_coalesce:" tb_kg_l2_rtc_coalesce.log | sed "s/^/kg_l2_rtc_coalesce: /"
+grep -q "tb_kg_l2_rtc_coalesce: 0 errors" tb_kg_l2_rtc_coalesce.log
 
 # the bitmap OSD: kg_mcu2 target 02 + kg_l2_osd_overlay over an 800 x 600 picture (about a minute)
 iverilog -g2001 -Wall -Wno-timescale -o tb_kg_l2_osd.vvp "$M/sim/video/tb_kg_l2_osd.v" $K \
