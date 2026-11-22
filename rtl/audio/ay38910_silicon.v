@@ -1,4 +1,4 @@
-`timescale 1ns / 1ps
+// karabas: no `timescale, as the kg_* modules (verilator TIMESCALEMOD on kg_ym2149)
 // ==============================================================================
 //
 // Project: AY-3-8910 Silicon-to-RTL Synchronous Core (with optional YM2149F mode)
@@ -106,7 +106,10 @@ module ay38910_silicon
     end
 
     // Active chip select during write/read (combinational lookahead if latch_addr just fell)
+    // karabas: reg_wr is not used (wr_en below); kg_ym2149 is linted with -Wall
+    /* verilator lint_off UNUSEDSIGNAL */
     wire reg_wr = (write_psg & psg_sel) | rst;
+    /* verilator lint_on UNUSEDSIGNAL */
     assign da_oe = read_psg & psg_sel & ~rst;
 
     // =========================================================================
@@ -412,12 +415,31 @@ module ay38910_silicon
     // In YM2149F, envelope wave steps at 2x rate (every edge of F_ENV)
     wire env_step    = ym_mode ? f_env_toggle : env_step_ay;
 
+    // karabas: the envelope period counter after ENV_RST as in the transistor-level model of lvd2
+    // (sim/audio/tb_ay_diff.v; one clk/8 tick = 8 AY clocks). Its bit 0 is a two-phase flip-flop
+    // whose first stage has no reset (ay_model_counter, UP_RST(0)): ENV_RST while F1 = 1 clears the
+    // counter only for the write, U4 is cleared at once, and bit 0 comes back from that stage, so
+    // the count goes on from cnt_e[0], not from 1 (as the code came; with a period of 2 or more the
+    // envelope began a tick early or late, depending on the count before). An ENV_RST that ends
+    // at the edge where F1 rises is a write just before it (F1 = 0), counted at that rise: 1 (it
+    // waited for the next rise).
     always @(posedge clk) begin
         if (env_rst) begin
             // U4 SR-latch has R = F1, S = ENV_RST | (CMP_ENV & CNT_CLK):
-            // if ENV_RST finishes while F1=1, R=1 immediately clears U4 (ec_rst=0, cnt_e=1).
-            cnt_e  <= (!rst && f1) ? 16'd1 : 16'd0;
-            ec_rst <= (!rst && f1) ? 1'b0  : 1'b1;
+            // if ENV_RST finishes while F1=1, R=1 immediately clears U4 (ec_rst=0).
+            if (rst) begin
+                cnt_e  <= 16'd0;
+                ec_rst <= 1'b1;
+            end else if (f1_rise) begin
+                cnt_e  <= 16'd1;
+                ec_rst <= 1'b0;
+            end else if (f1) begin
+                cnt_e  <= {15'd0, cnt_e[0]};
+                ec_rst <= 1'b0;
+            end else begin
+                cnt_e  <= 16'd0;
+                ec_rst <= 1'b1;
+            end
             f_env  <= 1'b1;
         end else begin
             if (f1_rise) begin

@@ -143,6 +143,10 @@ karabas-go-modules/
   - `audio_peaks` (уровни для firmware нужны всем ядрам);
   - `audio_filter` → `kg_audio_lpf` с параметром среза;
   - `img_sdc` (монтировщик образов пригодится tsconf и profi).
+- **ym2149** → `kg_ym2149` (2026-11-22): AY-3-8910 / YM2149F с портами `ym2149.v` MikeJ / Sorgelig, на `ay38910_silicon.v` (Activator RFG, по синхронной схеме dr.Titus rev 10; сверка с транзисторной моделью lvd2 в `sim/audio/tb_ay_diff.v`). Ядра переводятся по очереди, в каждом `turbosound.v` ставит `kg_ym2149` вместо `ym2149`, свой `ym2149.v` удаляется из prj, проверка LUT / тайминга и прослушивание (таблица ЦАП AY тише в середине, баланс микса меняется):
+  1. tsconf — первым;
+  2. baseconf;
+  3. profi.
 
 ## 6. Отказ от ipcore (coregen)
 
